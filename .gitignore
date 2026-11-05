@@ -1,0 +1,10 @@
+build/*
+install/*
+log/*
+**/.**.*
+GalbotSDK/*
+sdk/*
+src/galbot_one_golf_description/*
+__pycache__/*
+.vscode/*
+*.pyc
