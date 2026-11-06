@@ -45,6 +45,19 @@ CONTROLLED_JOINT_NAMES = (
 
 VISUALIZED_JOINT_NAMES = CONTROLLED_JOINT_NAMES + WHEEL_PASSIVE_JOINT_NAMES
 
+RIGHT_ARM_GRAB_POSITION = [
+    -1.767,
+    1.173,
+    0.275,
+    2.568,
+    -1.510,
+    -0.534,
+    -0.289,
+]
+LEFT_ARM_GRAB_POSITION = [
+    -value for value in RIGHT_ARM_GRAB_POSITION
+]
+
 GROUP_PREFIXES = {
     TOPIC_LEG: ("leg_joint",),
     TOPIC_HEAD: ("head_joint",),

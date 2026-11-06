@@ -627,3 +627,4 @@ Agent 完成代码后按以下顺序验证：
   轮子 TF；底盘平移仍需要独立 odom/TF。
 - `ros2 run ctrl raise_body_lower_arms_test` 是共享话题测试程序，先放下双臂，
   再使用官方站姿抬升身体；必须显式传入 `-p confirm:=true`。
+- `ros2 run ctrl grab` 发布指定 Grab 姿态：右臂使用配置值，左臂逐项取反。

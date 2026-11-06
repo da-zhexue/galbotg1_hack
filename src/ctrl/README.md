@@ -68,6 +68,23 @@ ros2 run ctrl raise_body_lower_arms_test \
 `head_base_link` 高度约 `1.444 m`。仿真模式会直接显示在 RViz；真机模式
 需要 `real_robot_bridge` 已使用 `allow_motion:=true` 启动。
 
+Grab 测试：
+
+```bash
+ros2 run ctrl grab \
+  --ros-args -p confirm:=true
+```
+
+该命令同时发布左右机械臂：
+
+```text
+right_arm: [-1.767, 1.173, 0.275, 2.568, -1.510, -0.534, -0.289]
+left_arm:  [ 1.767, -1.173, -0.275, -2.568, 1.510, 0.534, 0.289]
+```
+
+同样需要通过 `mode:=sim` 或 `mode:=real` 先启动控制后端。真机模式下必须
+使用 `allow_motion:=true`。
+
 轮速顺序为 `wheel1_joint` 至 `wheel4_joint`。仿真后端会对轮速积分，得到
 主动轮关节位置，同时发布每个轮子的 10 个被动滚子关节，确保 RViz 中轮子
 转子 TF 完整。RViz 只显示轮子旋转；如果需要显示底盘平移，还需要额外的

@@ -1,6 +1,8 @@
 import math
 
 from ctrl.joint_utils import (
+    LEFT_ARM_GRAB_POSITION,
+    RIGHT_ARM_GRAB_POSITION,
     TOPIC_HEAD,
     VISUALIZED_JOINT_NAMES,
     WHEEL_PASSIVE_JOINT_NAMES,
@@ -53,3 +55,10 @@ def test_all_wheel_passive_joints_are_visualized():
     assert set(WHEEL_PASSIVE_JOINT_NAMES).issubset(
         VISUALIZED_JOINT_NAMES
     )
+
+
+def test_grab_left_arm_is_opposite_of_right_arm():
+    assert len(RIGHT_ARM_GRAB_POSITION) == 7
+    assert LEFT_ARM_GRAB_POSITION == [
+        -value for value in RIGHT_ARM_GRAB_POSITION
+    ]
