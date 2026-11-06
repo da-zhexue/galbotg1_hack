@@ -7,13 +7,17 @@ import time
 import rclpy
 from rclpy.node import Node
 
-from ctrl_msgs.msg import JointGroupCommand
+from ctrl_msgs.msg import GripperCommand, JointGroupCommand
 
 from .joint_utils import (
+    GRIPPER_DEFAULT_EFFORT,
+    GRIPPER_DEFAULT_VELOCITY_MPS,
+    GRIPPER_HALF_CLOSED_WIDTH_M,
     LEFT_ARM_GRAB_POSITION,
     LEFT_ARM_JOINT_NAMES,
     RIGHT_ARM_GRAB_POSITION,
     RIGHT_ARM_JOINT_NAMES,
+    TOPIC_GRIPPER,
     TOPIC_LEFT_HAND,
     TOPIC_RIGHT_HAND,
 )
@@ -37,6 +41,9 @@ class GrabNode(Node):
         self._right_publisher = self.create_publisher(
             JointGroupCommand, TOPIC_RIGHT_HAND, 10
         )
+        self._gripper_publisher = self.create_publisher(
+            GripperCommand, TOPIC_GRIPPER, 10
+        )
 
     def _make_message(
         self,
@@ -49,6 +56,17 @@ class GrabNode(Node):
         message.position = list(positions)
         message.velocity = []
         message.effort = []
+        return message
+
+    def _make_gripper_message(self) -> GripperCommand:
+        message = GripperCommand()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.control_left = True
+        message.left_width_m = GRIPPER_HALF_CLOSED_WIDTH_M
+        message.control_right = True
+        message.right_width_m = GRIPPER_HALF_CLOSED_WIDTH_M
+        message.velocity_mps = GRIPPER_DEFAULT_VELOCITY_MPS
+        message.effort = GRIPPER_DEFAULT_EFFORT
         return message
 
     def _publish_pose(self) -> None:
@@ -64,10 +82,12 @@ class GrabNode(Node):
         right_message = self._make_message(
             RIGHT_ARM_JOINT_NAMES, RIGHT_ARM_GRAB_POSITION
         )
+        gripper_message = self._make_gripper_message()
 
         for _ in range(repeat_count):
             self._left_publisher.publish(left_message)
             self._right_publisher.publish(right_message)
+            self._gripper_publisher.publish(gripper_message)
             rclpy.spin_once(
                 self, timeout_sec=max(repeat_period_s, 0.01)
             )

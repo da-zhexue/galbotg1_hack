@@ -7,13 +7,17 @@ import time
 import rclpy
 from rclpy.node import Node
 
-from ctrl_msgs.msg import JointGroupCommand
+from ctrl_msgs.msg import GripperCommand, JointGroupCommand
 
 from .joint_utils import (
+    GRIPPER_DEFAULT_EFFORT,
+    GRIPPER_DEFAULT_VELOCITY_MPS,
+    GRIPPER_FULLY_OPEN_WIDTH_M,
     HEAD_JOINT_NAMES,
     LEFT_ARM_JOINT_NAMES,
     LEG_JOINT_NAMES,
     RIGHT_ARM_JOINT_NAMES,
+    TOPIC_GRIPPER,
     TOPIC_HEAD,
     TOPIC_LEFT_HAND,
     TOPIC_LEG,
@@ -57,6 +61,9 @@ class RaiseBodyLowerArmsTest(Node):
         self.declare_parameter("leg_settle_s", 8.0)
 
         self._command_publishers = {
+            TOPIC_GRIPPER: self.create_publisher(
+                GripperCommand, TOPIC_GRIPPER, 10
+            ),
             TOPIC_HEAD: self.create_publisher(
                 JointGroupCommand, TOPIC_HEAD, 10
             ),
@@ -82,6 +89,20 @@ class RaiseBodyLowerArmsTest(Node):
         message.position = list(positions)
         message.velocity = []
         message.effort = []
+        return message
+
+    def _gripper_message(
+        self,
+        width_m: float,
+    ) -> GripperCommand:
+        message = GripperCommand()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.control_left = True
+        message.left_width_m = width_m
+        message.control_right = True
+        message.right_width_m = width_m
+        message.velocity_mps = GRIPPER_DEFAULT_VELOCITY_MPS
+        message.effort = GRIPPER_DEFAULT_EFFORT
         return message
 
     def _publish_repeated(
@@ -126,6 +147,9 @@ class RaiseBodyLowerArmsTest(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
         self.get_logger().warning("Step 1/2: lowering both arms")
+        gripper = self._gripper_message(
+            GRIPPER_FULLY_OPEN_WIDTH_M
+        )
         head = self._message(
             HEAD_JOINT_NAMES, HEAD_NEUTRAL_POSITION
         )
@@ -134,6 +158,9 @@ class RaiseBodyLowerArmsTest(Node):
         )
         right_arm = self._message(
             RIGHT_ARM_JOINT_NAMES, RIGHT_ARM_DOWN_POSITION
+        )
+        self._publish_repeated(
+            TOPIC_GRIPPER, gripper, repeat_count, repeat_period_s
         )
         self._publish_repeated(
             TOPIC_HEAD, head, repeat_count, repeat_period_s

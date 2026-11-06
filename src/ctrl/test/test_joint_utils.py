@@ -1,6 +1,8 @@
 import math
 
 from ctrl.joint_utils import (
+    GRIPPER_FULLY_OPEN_WIDTH_M,
+    GRIPPER_HALF_CLOSED_WIDTH_M,
     LEFT_ARM_GRAB_POSITION,
     RIGHT_ARM_GRAB_POSITION,
     TOPIC_HEAD,
@@ -62,3 +64,15 @@ def test_grab_left_arm_is_opposite_of_right_arm():
     assert LEFT_ARM_GRAB_POSITION == [
         -value for value in RIGHT_ARM_GRAB_POSITION
     ]
+
+
+def test_gripper_test_widths_are_full_and_half_open():
+    assert math.isclose(GRIPPER_FULLY_OPEN_WIDTH_M, 0.12)
+    assert math.isclose(GRIPPER_HALF_CLOSED_WIDTH_M, 0.06)
+    assert math.isclose(
+        gripper_width_to_joint(
+            GRIPPER_HALF_CLOSED_WIDTH_M, 0.12, 1.703
+        ),
+        0.8515,
+        abs_tol=1e-6,
+    )
