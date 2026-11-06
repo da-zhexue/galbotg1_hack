@@ -125,6 +125,15 @@ ros2 run ctrl drop \
 沿 X-Z 平面斜线向前移动 `0.20 m`，每个路点左右 TCP 间距保持 `0.19 m`。
 Drop 全程保持与 Grab 相同的局部 X 轴 `180°` 末端朝向。
 
+Drop 后扩手测试：
+
+```bash
+ros2 run ctrl drop_over \
+  --ros-args -p confirm:=true
+```
+
+该状态先完整执行 Drop，再将左右 TCP 间距扩大到 `0.30 m`。
+
 轮速顺序为 `wheel1_joint` 至 `wheel4_joint`。仿真后端会对轮速积分，得到
 主动轮关节位置，同时发布每个轮子的 10 个被动滚子关节，确保 RViz 中轮子
 转子 TF 完整。RViz 只显示轮子旋转；如果需要显示底盘平移，还需要额外的

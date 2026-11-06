@@ -27,7 +27,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--state",
         choices=("all", "default", "grab", "drop"),
         default="all",
-        help="State to test. 'all' runs default, grab, then drop.",
+        help="State to test. 'all' runs default, grab, drop.",
     )
     parser.add_argument(
         "--settle-s",
@@ -103,7 +103,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("[grabbox] waiting for robot data")
         time.sleep(2.0)
         for state in states:
-            _run_state(box, state, args.settle_s, time.sleep)
+            _run_state(
+                box,
+                state,
+                args.settle_s,
+                time.sleep,
+            )
         return 0
     except (GrabboxError, RuntimeError) as error:
         print(f"[grabbox] test failed: {error}")

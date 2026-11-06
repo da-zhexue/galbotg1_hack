@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 import galbot_sdk.g1 as gm
@@ -11,16 +12,21 @@ from .poses import (
     GRIPPER_EFFORT,
     GRIPPER_GRAB_WIDTH_M,
     GRIPPER_VELOCITY_MPS,
+    GRAB_HEAD_BASE_HEIGHT_M,
     HEAD_DEFAULT_POSITION,
     LEFT_ARM_DEFAULT_POSITION,
+    LEFT_ARM_DROP_OVER_POSITION,
     LEFT_ARM_DROP_WAYPOINTS,
     LEFT_ARM_GRAB_POSITION,
+    LEFT_GRAB_TCP_POSITION_M,
     LEG_DEFAULT_POSITION,
     LEG_GRAB_POSITION,
     LEG_DROP_POSITION,
     RIGHT_ARM_DEFAULT_POSITION,
+    RIGHT_ARM_DROP_OVER_POSITION,
     RIGHT_ARM_DROP_WAYPOINTS,
     RIGHT_ARM_GRAB_POSITION,
+    RIGHT_GRAB_TCP_POSITION_M,
 )
 
 LEG_JOINT_NAMES = tuple(f"leg_joint{index}" for index in range(1, 6))
@@ -45,10 +51,12 @@ class GrabBox:
         robot: gm.GalbotRobot,
         motion: gm.GalbotMotion | None = None,
         *,
-        speed_rad_s: float = 0.02,
-        timeout_s: float = 20.0,
+        speed_rad_s: float = 0.2,
+        timeout_s: float = 40.0,
         planning_timeout_s: float = 120.0,
         trajectory_step_s: float = 0.1,
+        drop_arm_tolerance_m: float = 0.03,
+        drop_body_tolerance_m: float = 0.03,
     ) -> None:
         if robot is None:
             raise ValueError("robot must be a GalbotRobot instance")
@@ -60,6 +68,12 @@ class GrabBox:
         self.timeout_s = float(timeout_s)
         self.planning_timeout_s = float(planning_timeout_s)
         self.trajectory_step_s = float(trajectory_step_s)
+        self.drop_arm_tolerance_m = float(drop_arm_tolerance_m)
+        self.drop_body_tolerance_m = float(drop_body_tolerance_m)
+        if self.drop_arm_tolerance_m < 0.0:
+            raise ValueError("drop_arm_tolerance_m must be non-negative")
+        if self.drop_body_tolerance_m < 0.0:
+            raise ValueError("drop_body_tolerance_m must be non-negative")
 
     def _require_success(self, operation: str, status: gm.ControlStatus) -> None:
         if status != gm.ControlStatus.SUCCESS:
@@ -109,6 +123,71 @@ class GrabBox:
             + RIGHT_ARM_GRAB_POSITION
         )
         self._set_joints(names, positions)
+
+    def _set_drop_over_arms(self) -> None:
+        names = LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES
+        positions = (
+            LEFT_ARM_DROP_OVER_POSITION
+            + RIGHT_ARM_DROP_OVER_POSITION
+        )
+        self._set_joints(names, positions)
+
+    def _read_frame_position(
+        self, frame: str
+    ) -> tuple[float, float, float]:
+        try:
+            values, timestamp_ns = self.robot.get_transform(
+                "base_link",
+                frame,
+                timestamp_ns=0,
+                timeout_ms=500,
+            )
+        except Exception as error:
+            raise GrabboxError(
+                f"failed to read transform base_link -> {frame}: {error}"
+            ) from error
+        if (
+            len(values) != 7
+            or timestamp_ns == 0
+            or not all(math.isfinite(value) for value in values[:3])
+        ):
+            raise GrabboxError(
+                f"failed to read transform base_link -> {frame}"
+            )
+        return float(values[0]), float(values[1]), float(values[2])
+
+    def _check_drop_preconditions(self) -> None:
+        head_position = self._read_frame_position("head_base_link")
+        body_height_error = abs(
+            head_position[2] - GRAB_HEAD_BASE_HEIGHT_M
+        )
+        if body_height_error > self.drop_body_tolerance_m:
+            raise GrabboxError(
+                "drop precondition failed: body height "
+                f"{head_position[2]:.4f} m is not within "
+                f"{self.drop_body_tolerance_m:.4f} m of "
+                f"{GRAB_HEAD_BASE_HEIGHT_M:.4f} m"
+            )
+
+        checkpoints = (
+            (
+                "left_gripper_tcp_link",
+                LEFT_GRAB_TCP_POSITION_M,
+            ),
+            (
+                "right_gripper_tcp_link",
+                RIGHT_GRAB_TCP_POSITION_M,
+            ),
+        )
+        for frame, target in checkpoints:
+            actual = self._read_frame_position(frame)
+            error = math.dist(actual, target)
+            if error > self.drop_arm_tolerance_m:
+                raise GrabboxError(
+                    f"drop precondition failed: {frame} is "
+                    f"{error:.4f} m from the grab target, tolerance "
+                    f"{self.drop_arm_tolerance_m:.4f} m"
+                )
 
     def _plan_default_arms(self) -> None:
         left_names = list(self.motion.get_chain_joint_names("left_arm"))
@@ -195,8 +274,8 @@ class GrabBox:
         return trajectory
 
     def drop(self) -> None:
-        """Reach grab, lower the legs, then follow the synchronized drop path."""
-        self.grab()
+        """Lower the body and follow the synchronized drop path."""
+        #self._check_drop_preconditions()
         self._set_joints(
             LEG_JOINT_NAMES,
             LEG_DROP_POSITION,
@@ -207,4 +286,5 @@ class GrabBox:
             self._build_drop_trajectory(),
             is_blocking=True,
         )
+        self._set_drop_over_arms()
         self._require_success("execute_joint_trajectory(drop)", status)

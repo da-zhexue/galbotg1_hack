@@ -12,8 +12,10 @@ from ctrl.drop_trajectory import (
 from ctrl.joint_utils import (
     GRIPPER_FULLY_OPEN_WIDTH_M,
     GRIPPER_HALF_CLOSED_WIDTH_M,
+    LEFT_ARM_DROP_OVER_POSITION,
     LEG_DEFAULT_POSITION,
     LEFT_ARM_GRAB_POSITION,
+    RIGHT_ARM_DROP_OVER_POSITION,
     RIGHT_ARM_GRAB_POSITION,
     TOPIC_HEAD,
     VISUALIZED_JOINT_NAMES,
@@ -72,6 +74,8 @@ def test_all_wheel_passive_joints_are_visualized():
 def test_grab_pose_metadata():
     assert len(RIGHT_ARM_GRAB_POSITION) == 7
     assert len(LEFT_ARM_GRAB_POSITION) == 7
+    assert len(RIGHT_ARM_DROP_OVER_POSITION) == 7
+    assert len(LEFT_ARM_DROP_OVER_POSITION) == 7
     assert LEG_DEFAULT_POSITION == [0.5, 1.5, 1.0, 0.0, 0.0]
 
 

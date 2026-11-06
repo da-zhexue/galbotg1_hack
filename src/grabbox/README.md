@@ -35,21 +35,20 @@ finally:
     robot.destroy()
 ```
 
-三个状态函数：
+四个状态函数：
 
 - `default()`：默认抬升站姿、头部归中、双臂放下、夹爪全开 `0.12 m`；
   左右臂通过 `GalbotMotion.traj_plan()` 单路点协调规划。该姿态与官方
   G1 home 示例一致，因此同样关闭轨迹碰撞校验
 - `grab()`：Grab 姿态，双手 TCP 间距约 `0.21 m`，夹爪半开 `0.06 m`
-- `drop()`：先进入 Grab，再降腿并沿 21 个同步路点下降到离地约 `0.08 m`
+- `drop()`：不调用 Grab；确认双手 TCP 和身体高度处于 Grab 目标容差内后，
+  降腿并沿 21 个同步路点下降到离地约 `0.08 m`
+- `drop_over()`：完整执行 Drop 后，将左右 TCP 间距扩大到 `0.30 m`
 
-三个状态在腿部高度变化后都会等待 `leg_settle_s`（默认 `2.0 s`），再确认
-头部、双臂和腿部控制器已切回 PVT 控制。真机上如果腿动作完成后上体命令仍偶发
-`FAULT`，可以先用更长的稳定时间测试：
-
-```bash
-python -m grabbox.real_test --state all --leg-settle-s 5
-```
+`drop()` 默认要求左右 TCP 位置距离 Grab 目标不超过 `0.03 m`，
+`head_base_link` 高度误差不超过 `0.03 m`。任一条件不满足时会在下发第一条
+运动指令前报错。容差可通过 `drop_arm_tolerance_m` 和
+`drop_body_tolerance_m` 调整。
 
 抓取和下放姿态已与本地 URDF 限位核对，并把贴近 `left/right_arm_joint6`
 机械限位的路点收进安全余量，避免控制器因关节限位锁存故障。
@@ -76,17 +75,9 @@ box = GrabBox(robot, motion)
 ```bash
 source /home/lin/galbot/sdk/galbot_sdk/linux-x86_64-gcc940/setup.sh
 
-# 依次执行 default、grab、drop
-python -m grabbox.real_test
-
-# 只测试 Grab
+python -m grabbox.real_test --state default
 python -m grabbox.real_test --state grab
-
-# 测试完成后恢复到 default
-python -m grabbox.real_test --state drop --restore
-
-# 腿部动作后等待 5 秒再移动头部和手臂
-python -m grabbox.real_test --state all --leg-settle-s 5
+python -m grabbox.real_test --state drop
 ```
 
 默认必须手动输入 `YES` 才会下发动作。`--yes` 只用于受控自动化环境。

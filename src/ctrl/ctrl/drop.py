@@ -35,8 +35,8 @@ from .joint_utils import (
 class DropNode(Node):
     """Execute the synchronized drop pose trajectory."""
 
-    def __init__(self) -> None:
-        super().__init__("drop")
+    def __init__(self, node_name: str = "drop") -> None:
+        super().__init__(node_name)
 
         self.declare_parameter("confirm", False)
         self.declare_parameter("discovery_wait_s", 1.5)

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from grabbox import GrabBox
+import pytest
+
+from grabbox import GrabboxError, GrabBox
 from grabbox.poses import (
+    GRAB_HEAD_BASE_HEIGHT_M,
+    LEFT_ARM_DROP_OVER_POSITION,
     LEFT_ARM_DROP_WAYPOINTS,
     LEFT_ARM_GRAB_POSITION,
+    RIGHT_ARM_DROP_OVER_POSITION,
     RIGHT_ARM_DROP_WAYPOINTS,
     RIGHT_ARM_GRAB_POSITION,
+    LEFT_GRAB_TCP_POSITION_M,
+    RIGHT_GRAB_TCP_POSITION_M,
 )
 from galbot_sdk.g1 import ControlStatus, MotionStatus
 
@@ -18,6 +25,19 @@ class FakeRobot:
         self.shutdown_requested = False
         self.shutdown_waited = False
         self.destroyed = False
+        self.transforms = {
+            "head_base_link": [
+                0.0,
+                0.0,
+                GRAB_HEAD_BASE_HEIGHT_M,
+            ],
+            "left_gripper_tcp_link": list(
+                LEFT_GRAB_TCP_POSITION_M
+            ),
+            "right_gripper_tcp_link": list(
+                RIGHT_GRAB_TCP_POSITION_M
+            ),
+        }
 
     def init(self):
         self.initialized = True
@@ -34,6 +54,19 @@ class FakeRobot:
     def execute_joint_trajectory(self, trajectory, is_blocking=True):
         self.trajectories.append((trajectory, is_blocking))
         return ControlStatus.SUCCESS
+
+    def get_transform(
+        self,
+        target_frame,
+        source_frame,
+        timestamp_ns=0,
+        timeout_ms=100,
+    ):
+        del target_frame, timestamp_ns, timeout_ms
+        position = self.transforms.get(source_frame)
+        if position is None:
+            return [], 0
+        return list(position) + [0.0, 0.0, 0.0, 1.0], 1
 
     def stop_trajectory_execution(self):
         return ControlStatus.SUCCESS
@@ -128,6 +161,60 @@ def test_default_uses_single_point_arm_planning():
         ]
         for call in joint_calls
     )
+
+
+def test_drop_over_extends_hands_to_30cm_pose():
+    robot = FakeRobot()
+    box = GrabBox(robot, FakeMotion(), trajectory_step_s=0.1)
+
+    box.drop_over()
+
+    assert robot.trajectories
+    arm_names = [
+        f"left_arm_joint{index}" for index in range(1, 8)
+    ] + [
+        f"right_arm_joint{index}" for index in range(1, 8)
+    ]
+    assert any(
+        call[1]["joint_names"] == arm_names
+        and call[1]["joint_positions"]
+        == LEFT_ARM_DROP_OVER_POSITION + RIGHT_ARM_DROP_OVER_POSITION
+        for call in robot.calls
+        if call[0] == "joints"
+    )
+
+
+def test_drop_over_after_drop_does_not_repeat_drop():
+    robot = FakeRobot()
+    box = GrabBox(robot, FakeMotion(), trajectory_step_s=0.1)
+
+    box.drop()
+    trajectory_count = len(robot.trajectories)
+    box.drop_over(drop_first=False)
+
+    assert len(robot.trajectories) == trajectory_count
+
+
+def test_drop_rejects_arms_outside_grab_tolerance():
+    robot = FakeRobot()
+    robot.transforms["left_gripper_tcp_link"][1] += 0.05
+    box = GrabBox(robot, FakeMotion())
+
+    with pytest.raises(GrabboxError, match="left_gripper_tcp_link"):
+        box.drop()
+
+    assert not robot.calls
+
+
+def test_drop_rejects_body_height_outside_grab_tolerance():
+    robot = FakeRobot()
+    robot.transforms["head_base_link"][2] += 0.05
+    box = GrabBox(robot, FakeMotion())
+
+    with pytest.raises(GrabboxError, match="body height"):
+        box.drop()
+
+    assert not robot.calls
 
 
 def test_real_test_sequence_with_fake_robot(monkeypatch):
