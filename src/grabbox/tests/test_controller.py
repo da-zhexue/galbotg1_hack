@@ -103,6 +103,8 @@ def test_default_grab_and_drop():
     assert trajectory.points[0].joint_command_vec[0].position == (
         LEFT_ARM_DROP_WAYPOINTS[0][0]
     )
+    assert LEFT_ARM_DROP_WAYPOINTS[0] == LEFT_ARM_GRAB_POSITION
+    assert RIGHT_ARM_DROP_WAYPOINTS[0] == RIGHT_ARM_GRAB_POSITION
 
 
 def test_default_uses_single_point_arm_planning():

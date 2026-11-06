@@ -1,0 +1,9 @@
+{
+  "test/test_joint_utils.py::test_all_wheel_passive_joints_are_visualized": true,
+  "test/test_joint_utils.py::test_drop_trajectory_metadata": true,
+  "test/test_joint_utils.py::test_grab_pose_metadata": true,
+  "test/test_joint_utils.py::test_gripper_test_widths_are_full_and_half_open": true,
+  "test/test_joint_utils.py::test_gripper_width_clamps": true,
+  "test/test_joint_utils.py::test_joint_group_validation": true,
+  "test/test_joint_utils.py::test_wheel_velocity_conversion_round_trip_axes": true
+}

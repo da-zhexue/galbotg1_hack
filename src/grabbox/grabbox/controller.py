@@ -166,7 +166,7 @@ class GrabBox:
         self._set_gripper(GRIPPER_DEFAULT_WIDTH_M)
 
     def grab(self) -> None:
-        """Move to the raised-body grab state with 19 cm TCP spacing."""
+        """Move to the raised-body grab state with 21 cm TCP spacing."""
         self._set_grab_legs()
         self._set_grab_arms()
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
