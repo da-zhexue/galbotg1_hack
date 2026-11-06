@@ -24,6 +24,7 @@ WHEEL_PASSIVE_JOINT_NAMES = tuple(
     for roller in range(10)
 )
 LEG_JOINT_NAMES = tuple(f"leg_joint{index}" for index in range(1, 6))
+LEG_DEFAULT_POSITION = [0.5, 1.5, 1.0, 0.0, 0.0]
 HEAD_JOINT_NAMES = ("head_joint1", "head_joint2")
 LEFT_ARM_JOINT_NAMES = tuple(
     f"left_arm_joint{index}" for index in range(1, 8)
@@ -61,17 +62,24 @@ COMPARABLE_JOINT_NAMES = (
     + (LEFT_GRIPPER_JOINT_NAME, RIGHT_GRIPPER_JOINT_NAME)
 )
 
+LEG_GRAB_POSITION = [0.1, 0.7, 0.5, 0.0, 0.0]
 RIGHT_ARM_GRAB_POSITION = [
-    -1.767,
-    1.173,
-    0.275,
-    2.568,
-    -1.510,
-    -0.534,
-    -0.289,
+    -1.246815459,
+    1.231173383,
+    -0.216894712,
+    2.385927513,
+    1.252578452,
+    0.822664626,
+    0.691685241,
 ]
 LEFT_ARM_GRAB_POSITION = [
-    -value for value in RIGHT_ARM_GRAB_POSITION
+    1.248652236,
+    -1.233072044,
+    0.215368427,
+    -2.385927513,
+    -1.252323247,
+    -0.820291307,
+    -0.690536972,
 ]
 
 GROUP_PREFIXES = {

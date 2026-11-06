@@ -1,8 +1,18 @@
 import math
 
+from ctrl.drop_trajectory import (
+    END_EFFECTOR_ROLL_RAD,
+    FINAL_END_EFFECTOR_HEIGHT_M,
+    FINAL_FORWARD_OFFSET_M,
+    GRAB_END_EFFECTOR_DISTANCE_M,
+    LEFT_ARM_DROP_WAYPOINTS,
+    LEG_DROP_POSITION,
+    RIGHT_ARM_DROP_WAYPOINTS,
+)
 from ctrl.joint_utils import (
     GRIPPER_FULLY_OPEN_WIDTH_M,
     GRIPPER_HALF_CLOSED_WIDTH_M,
+    LEG_DEFAULT_POSITION,
     LEFT_ARM_GRAB_POSITION,
     RIGHT_ARM_GRAB_POSITION,
     TOPIC_HEAD,
@@ -59,11 +69,10 @@ def test_all_wheel_passive_joints_are_visualized():
     )
 
 
-def test_grab_left_arm_is_opposite_of_right_arm():
+def test_grab_pose_metadata():
     assert len(RIGHT_ARM_GRAB_POSITION) == 7
-    assert LEFT_ARM_GRAB_POSITION == [
-        -value for value in RIGHT_ARM_GRAB_POSITION
-    ]
+    assert len(LEFT_ARM_GRAB_POSITION) == 7
+    assert LEG_DEFAULT_POSITION == [0.5, 1.5, 1.0, 0.0, 0.0]
 
 
 def test_gripper_test_widths_are_full_and_half_open():
@@ -76,3 +85,15 @@ def test_gripper_test_widths_are_full_and_half_open():
         0.8515,
         abs_tol=1e-6,
     )
+
+
+def test_drop_trajectory_metadata():
+    assert LEG_DROP_POSITION == [0.0, 0.0, 0.3, 0.0, 0.0]
+    assert math.isclose(GRAB_END_EFFECTOR_DISTANCE_M, 0.19)
+    assert math.isclose(END_EFFECTOR_ROLL_RAD, math.pi, abs_tol=1e-6)
+    assert math.isclose(FINAL_END_EFFECTOR_HEIGHT_M, 0.1)
+    assert math.isclose(FINAL_FORWARD_OFFSET_M, 0.20)
+    assert len(LEFT_ARM_DROP_WAYPOINTS) == 21
+    assert len(RIGHT_ARM_DROP_WAYPOINTS) == 21
+    assert all(len(point) == 7 for point in LEFT_ARM_DROP_WAYPOINTS)
+    assert all(len(point) == 7 for point in RIGHT_ARM_DROP_WAYPOINTS)

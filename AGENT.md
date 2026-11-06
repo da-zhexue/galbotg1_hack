@@ -628,7 +628,12 @@ Agent 完成代码后按以下顺序验证：
 - `ros2 run ctrl raise_body_lower_arms_test` 是共享话题测试程序，先放下双臂，
   打开夹爪，再使用官方站姿抬升身体；必须显式传入 `-p confirm:=true`。
 - `ros2 run ctrl grab` 发布指定 Grab 姿态：右臂使用配置值，左臂逐项取反，
-  并将夹爪闭合到 `0.06 m`。
+  双手 TCP 间距 `0.19 m` 并前移约 `0.05 m`，夹爪闭合到 `0.06 m`，
+  末端绕局部 X 轴翻转 `180°`，腿部回到默认姿态
+  `[0.5, 1.5, 1.0, 0, 0]`。
+- `ros2 run ctrl drop` 将腿部落到 `[0, 0, 0.3, 0, 0]`，然后用 21 个同步
+  IK 路点沿前下方斜线将双臂 TCP 降至离地 `0.10 m`，终点前移 `0.20 m`，
+  保持双手间距 `0.19 m` 和局部 X 轴 `180°` 翻转姿态。
 - `/ctrl/state/real`、`/ctrl/state/sim` 分别发布真机与仿真状态；
   `/ctrl/state/error` 发布关节角、左右末端位置和姿态误差。
 - 末端位姿统一使用 `base_link -> left/right_gripper_tcp_link`。

@@ -15,6 +15,7 @@ from .joint_utils import (
     GRIPPER_FULLY_OPEN_WIDTH_M,
     HEAD_JOINT_NAMES,
     LEFT_ARM_JOINT_NAMES,
+    LEG_DEFAULT_POSITION,
     LEG_JOINT_NAMES,
     RIGHT_ARM_JOINT_NAMES,
     TOPIC_GRIPPER,
@@ -24,8 +25,6 @@ from .joint_utils import (
     TOPIC_RIGHT_HAND,
 )
 
-# Official G1 preset pose. Its head_base_link height is about 1.444 m.
-LEG_RAISED_POSITION = [0.5, 1.5, 1.0, 0.0, 0.0]
 HEAD_NEUTRAL_POSITION = [0.0, 0.0]
 LEFT_ARM_DOWN_POSITION = [
     2.0,
@@ -174,7 +173,7 @@ class RaiseBodyLowerArmsTest(Node):
         time.sleep(arm_settle_s)
 
         self.get_logger().warning("Step 2/2: raising the body")
-        leg = self._message(LEG_JOINT_NAMES, LEG_RAISED_POSITION)
+        leg = self._message(LEG_JOINT_NAMES, LEG_DEFAULT_POSITION)
         self._publish_repeated(
             TOPIC_LEG, leg, repeat_count, repeat_period_s
         )

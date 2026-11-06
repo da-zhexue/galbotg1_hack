@@ -25,6 +25,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'drop = ctrl.drop:main',
             'grab = ctrl.grab:main',
             'real_robot_bridge = ctrl.real_robot_bridge:main',
             'rviz_joint_bridge = ctrl.rviz_joint_bridge:main',

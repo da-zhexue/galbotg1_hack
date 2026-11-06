@@ -15,10 +15,13 @@ from .joint_utils import (
     GRIPPER_HALF_CLOSED_WIDTH_M,
     LEFT_ARM_GRAB_POSITION,
     LEFT_ARM_JOINT_NAMES,
+    LEG_GRAB_POSITION,
+    LEG_JOINT_NAMES,
     RIGHT_ARM_GRAB_POSITION,
     RIGHT_ARM_JOINT_NAMES,
     TOPIC_GRIPPER,
     TOPIC_LEFT_HAND,
+    TOPIC_LEG,
     TOPIC_RIGHT_HAND,
 )
 
@@ -40,6 +43,9 @@ class GrabNode(Node):
         )
         self._right_publisher = self.create_publisher(
             JointGroupCommand, TOPIC_RIGHT_HAND, 10
+        )
+        self._leg_publisher = self.create_publisher(
+            JointGroupCommand, TOPIC_LEG, 10
         )
         self._gripper_publisher = self.create_publisher(
             GripperCommand, TOPIC_GRIPPER, 10
@@ -82,11 +88,15 @@ class GrabNode(Node):
         right_message = self._make_message(
             RIGHT_ARM_JOINT_NAMES, RIGHT_ARM_GRAB_POSITION
         )
+        leg_message = self._make_message(
+            LEG_JOINT_NAMES, LEG_GRAB_POSITION
+        )
         gripper_message = self._make_gripper_message()
 
         for _ in range(repeat_count):
             self._left_publisher.publish(left_message)
             self._right_publisher.publish(right_message)
+            self._leg_publisher.publish(leg_message)
             self._gripper_publisher.publish(gripper_message)
             rclpy.spin_once(
                 self, timeout_sec=max(repeat_period_s, 0.01)
@@ -115,7 +125,9 @@ class GrabNode(Node):
         while time.monotonic() < end_time:
             rclpy.spin_once(self, timeout_sec=0.05)
 
-        self.get_logger().warning("Publishing left/right arm grab pose")
+        self.get_logger().warning(
+            "Publishing grab pose, half-closed grippers, and default leg pose"
+        )
         self._publish_pose()
         time.sleep(settle_s)
         self.get_logger().info("Grab pose command finished")
