@@ -22,13 +22,26 @@ Galbot G1 真机控制与 RViz 可视化共用的 ROS 2 话题接口。
 
 应用层只需要发布上述共享话题，不需要关心当前使用真机还是仿真后端。
 
+统一状态与对比话题：
+
+| 话题 | 消息类型 | 用途 |
+| --- | --- | --- |
+| `/ctrl/state/real` | `ctrl_msgs/RobotStateSnapshot` | 真机关节角与左右末端位姿 |
+| `/ctrl/state/sim` | `ctrl_msgs/RobotStateSnapshot` | 仿真关节角与左右末端位姿 |
+| `/ctrl/state/error` | `ctrl_msgs/RobotStateError` | 真机与仿真的逐关节及末端误差 |
+
+末端位姿统一为 `base_link -> left_gripper_tcp_link` 和
+`base_link -> right_gripper_tcp_link`。
+
 ## 构建
 
 ```bash
 cd /home/lin/galbot
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 source /opt/ros/humble/setup.bash
-colcon build --symlink-install --packages-select ctrl_msgs ctrl
+colcon build --symlink-install \
+  --base-paths src \
+  --packages-select ctrl_msgs ctrl
 source install/setup.bash
 ```
 
@@ -121,6 +134,20 @@ ros2 launch ctrl ctrl.launch.py mode:=real allow_motion:=true rviz:=false
 
 真机后端使用非阻塞关节和夹爪命令。轮速后端使用官方 URDF 的四轮几何关系
 转换为底盘速度，并在轮速话题超时后调用 `stop_base()`。
+
+真机与仿真状态对比：
+
+```bash
+ros2 launch ctrl ctrl.launch.py \
+  mode:=real allow_motion:=false rviz:=false compare_states:=true
+```
+
+该模式同时启动真机 SDK 状态读取、仿真状态镜像和 `state_comparator`。
+`allow_motion:=false` 表示只读取和对比，不发送运动命令。查看误差：
+
+```bash
+ros2 topic echo /ctrl/state/error
+```
 
 ## 消息规则
 

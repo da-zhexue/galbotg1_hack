@@ -8,15 +8,25 @@ import time
 import rclpy
 from rclpy.node import Node
 
-from ctrl_msgs.msg import GripperCommand, JointGroupCommand, WheelCommand
+from ctrl_msgs.msg import (
+    GripperCommand,
+    JointGroupCommand,
+    RobotStateSnapshot,
+    WheelCommand,
+)
 
 from .joint_utils import (
+    COMPARABLE_JOINT_NAMES,
     GROUP_PREFIXES,
+    LEFT_END_EFFECTOR_FRAME,
+    RIGHT_END_EFFECTOR_FRAME,
+    STATE_REFERENCE_FRAME,
     TOPIC_GRIPPER,
     TOPIC_WHEELS,
     validate_joint_names,
     wheel_velocities_to_base,
 )
+from .state_utils import pose_from_values
 
 
 class RealRobotBridge(Node):
@@ -26,6 +36,17 @@ class RealRobotBridge(Node):
         super().__init__("real_robot_bridge")
 
         self.declare_parameter("allow_motion", True)
+        self.declare_parameter("connect_sdk", True)
+        self.declare_parameter("publish_state", True)
+        self.declare_parameter("state_topic", "/ctrl/state/real")
+        self.declare_parameter("state_publish_rate_hz", 5.0)
+        self.declare_parameter("reference_frame", STATE_REFERENCE_FRAME)
+        self.declare_parameter(
+            "left_end_effector_frame", LEFT_END_EFFECTOR_FRAME
+        )
+        self.declare_parameter(
+            "right_end_effector_frame", RIGHT_END_EFFECTOR_FRAME
+        )
         self.declare_parameter("speed_rad_s", 0.2)
         self.declare_parameter("command_timeout_s", 15.0)
         self.declare_parameter("command_rate_hz", 20.0)
@@ -36,6 +57,24 @@ class RealRobotBridge(Node):
 
         self._allow_motion = bool(
             self.get_parameter("allow_motion").value
+        )
+        self._connect_sdk = bool(
+            self.get_parameter("connect_sdk").value
+        )
+        self._publish_state = bool(
+            self.get_parameter("publish_state").value
+        )
+        self._state_publish_rate_hz = max(
+            float(self.get_parameter("state_publish_rate_hz").value), 1.0
+        )
+        self._reference_frame = str(
+            self.get_parameter("reference_frame").value
+        )
+        self._left_ee_frame = str(
+            self.get_parameter("left_end_effector_frame").value
+        )
+        self._right_ee_frame = str(
+            self.get_parameter("right_end_effector_frame").value
         )
         self._speed_rad_s = float(
             self.get_parameter("speed_rad_s").value
@@ -60,6 +99,12 @@ class RealRobotBridge(Node):
         )
 
         self._robot = None
+        self._real_joint_names: list[str] = []
+        self._state_publisher = self.create_publisher(
+            RobotStateSnapshot,
+            str(self.get_parameter("state_topic").value),
+            10,
+        )
         self._shutdown = False
         self._last_group_command: dict[str, float] = {}
         self._last_gripper_command = {"left": 0.0, "right": 0.0}
@@ -67,7 +112,7 @@ class RealRobotBridge(Node):
         self._wheel_timeout_s = self._wheel_timeout_default_s
         self._base_moving = False
 
-        if self._allow_motion:
+        if self._connect_sdk:
             self._initialize_sdk()
 
         for topic in GROUP_PREFIXES:
@@ -84,11 +129,20 @@ class RealRobotBridge(Node):
             GripperCommand, TOPIC_GRIPPER, self._on_gripper, 10
         )
         self.create_timer(0.05, self._watchdog)
+        if self._publish_state and self._robot is not None:
+            self.create_timer(
+                1.0 / self._state_publish_rate_hz,
+                self._publish_robot_state,
+            )
 
         if not self._allow_motion:
             self.get_logger().warning(
                 "allow_motion is false; commands are accepted but ignored. "
                 "Set allow_motion:=true after confirming the robot is safe."
+            )
+        if not self._connect_sdk:
+            self.get_logger().warning(
+                "connect_sdk is false; real state will not be published"
             )
 
     def _initialize_sdk(self) -> None:
@@ -104,7 +158,77 @@ class RealRobotBridge(Node):
             robot.destroy()
             raise RuntimeError("GalbotRobot initialization failed")
         self._robot = robot
+        try:
+            available = set(robot.get_joint_names())
+            self._real_joint_names = [
+                name for name in COMPARABLE_JOINT_NAMES
+                if name in available
+            ]
+        except Exception as error:
+            self.get_logger().warning(
+                f"initial joint name query failed: {error}"
+            )
         self.get_logger().info("GalbotRobot initialized")
+
+    def _read_end_effector_pose(self, frame: str):
+        values, timestamp_ns = self._robot.get_transform(
+            self._reference_frame,
+            frame,
+            timestamp_ns=0,
+            timeout_ms=100,
+        )
+        if len(values) != 7 or timestamp_ns == 0:
+            return None
+        return pose_from_values(values)
+
+    def _publish_robot_state(self) -> None:
+        if self._robot is None:
+            return
+
+        try:
+            if not self._real_joint_names:
+                available = set(self._robot.get_joint_names())
+                self._real_joint_names = [
+                    name for name in COMPARABLE_JOINT_NAMES
+                    if name in available
+                ]
+            positions = self._robot.get_joint_positions(
+                [], self._real_joint_names
+            )
+            if len(positions) != len(self._real_joint_names):
+                raise RuntimeError(
+                    "joint position count does not match joint names"
+                )
+        except Exception as error:
+            self.get_logger().warning(
+                f"real joint state read failed: {error}",
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        message = RobotStateSnapshot()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self._reference_frame
+        message.source = "real"
+        message.reference_frame = self._reference_frame
+        message.joint_names = list(self._real_joint_names)
+        message.joint_positions = [
+            float(value) for value in positions
+        ]
+        message.left_end_effector_frame = self._left_ee_frame
+        message.right_end_effector_frame = self._right_ee_frame
+
+        left_pose = self._read_end_effector_pose(self._left_ee_frame)
+        message.left_end_effector_valid = left_pose is not None
+        if left_pose is not None:
+            message.left_end_effector_pose = left_pose
+
+        right_pose = self._read_end_effector_pose(self._right_ee_frame)
+        message.right_end_effector_valid = right_pose is not None
+        if right_pose is not None:
+            message.right_end_effector_pose = right_pose
+
+        self._state_publisher.publish(message)
 
     def _on_joint_group(
         self, msg: JointGroupCommand, topic: str

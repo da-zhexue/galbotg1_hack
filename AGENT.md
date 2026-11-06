@@ -629,3 +629,6 @@ Agent 完成代码后按以下顺序验证：
   打开夹爪，再使用官方站姿抬升身体；必须显式传入 `-p confirm:=true`。
 - `ros2 run ctrl grab` 发布指定 Grab 姿态：右臂使用配置值，左臂逐项取反，
   并将夹爪闭合到 `0.06 m`。
+- `/ctrl/state/real`、`/ctrl/state/sim` 分别发布真机与仿真状态；
+  `/ctrl/state/error` 发布关节角、左右末端位置和姿态误差。
+- 末端位姿统一使用 `base_link -> left/right_gripper_tcp_link`。

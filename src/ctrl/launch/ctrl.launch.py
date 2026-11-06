@@ -29,6 +29,14 @@ def launch_setup(context, *args, **kwargs):
         LaunchConfiguration("allow_motion").perform(context).lower()
         in ("true", "1", "yes")
     )
+    connect_sdk = (
+        LaunchConfiguration("connect_sdk").perform(context).lower()
+        in ("true", "1", "yes")
+    )
+    compare_states = (
+        LaunchConfiguration("compare_states").perform(context).lower()
+        in ("true", "1", "yes")
+    )
     description_share = FindPackageShare(
         DESCRIPTION_PACKAGE
     ).perform(context)
@@ -56,7 +64,13 @@ def launch_setup(context, *args, **kwargs):
             [
                 f"'{mode}' == 'sim' or ",
                 f"'{use_rviz}' in ('true', '1', 'yes')",
+                f" or '{str(compare_states).lower()}' == 'true'",
             ]
+        )
+    )
+    compare_condition = IfCondition(
+        PythonExpression(
+            [f"'{str(compare_states).lower()}' == 'true'"]
         )
     )
 
@@ -90,7 +104,17 @@ def launch_setup(context, *args, **kwargs):
             executable="real_robot_bridge",
             name="real_robot_bridge",
             condition=real_condition,
-            parameters=[{"allow_motion": allow_motion}],
+            parameters=[{
+                "allow_motion": allow_motion,
+                "connect_sdk": connect_sdk,
+            }],
+            output="screen",
+        ),
+        Node(
+            package=PACKAGE_NAME,
+            executable="state_comparator",
+            name="state_comparator",
+            condition=compare_condition,
             output="screen",
         ),
     ]
@@ -112,6 +136,16 @@ def generate_launch_description():
             "allow_motion",
             default_value="false",
             description="Allow the real backend to send robot commands.",
+        ),
+        DeclareLaunchArgument(
+            "connect_sdk",
+            default_value="true",
+            description="Connect the real backend to galbot_sdk.",
+        ),
+        DeclareLaunchArgument(
+            "compare_states",
+            default_value="false",
+            description="Compare real and simulated arm states.",
         ),
         DeclareLaunchArgument(
             "urdf_path",

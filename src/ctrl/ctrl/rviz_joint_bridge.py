@@ -7,14 +7,25 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
 from sensor_msgs.msg import JointState
+from tf2_ros import Buffer, TransformException, TransformListener
 
-from ctrl_msgs.msg import GripperCommand, JointGroupCommand, WheelCommand
+from ctrl_msgs.msg import (
+    GripperCommand,
+    JointGroupCommand,
+    RobotStateSnapshot,
+    WheelCommand,
+)
 
 from .joint_utils import (
+    COMPARABLE_JOINT_NAMES,
     GROUP_PREFIXES,
+    LEFT_END_EFFECTOR_FRAME,
     LEFT_GRIPPER_JOINT_NAME,
+    RIGHT_END_EFFECTOR_FRAME,
     RIGHT_GRIPPER_JOINT_NAME,
+    STATE_REFERENCE_FRAME,
     TOPIC_GRIPPER,
     TOPIC_WHEELS,
     WHEEL_JOINT_NAMES,
@@ -22,6 +33,7 @@ from .joint_utils import (
     gripper_width_to_joint,
     validate_joint_names,
 )
+from .state_utils import pose_from_values
 
 
 class RvizJointBridge(Node):
@@ -35,6 +47,15 @@ class RvizJointBridge(Node):
         self.declare_parameter("wheel_command_timeout_s", 0.5)
         self.declare_parameter("gripper_max_width_m", 0.12)
         self.declare_parameter("gripper_open_angle_rad", 1.703)
+        self.declare_parameter("state_topic", "/ctrl/state/sim")
+        self.declare_parameter("state_publish_rate_hz", 10.0)
+        self.declare_parameter("reference_frame", STATE_REFERENCE_FRAME)
+        self.declare_parameter(
+            "left_end_effector_frame", LEFT_END_EFFECTOR_FRAME
+        )
+        self.declare_parameter(
+            "right_end_effector_frame", RIGHT_END_EFFECTOR_FRAME
+        )
 
         self._publish_rate_hz = max(
             float(self.get_parameter("publish_rate_hz").value), 1.0
@@ -48,6 +69,18 @@ class RvizJointBridge(Node):
         self._gripper_open_angle_rad = float(
             self.get_parameter("gripper_open_angle_rad").value
         )
+        self._state_publish_rate_hz = max(
+            float(self.get_parameter("state_publish_rate_hz").value), 1.0
+        )
+        self._reference_frame = str(
+            self.get_parameter("reference_frame").value
+        )
+        self._left_ee_frame = str(
+            self.get_parameter("left_end_effector_frame").value
+        )
+        self._right_ee_frame = str(
+            self.get_parameter("right_end_effector_frame").value
+        )
 
         self._position = {name: 0.0 for name in VISUALIZED_JOINT_NAMES}
         self._velocity = {name: 0.0 for name in VISUALIZED_JOINT_NAMES}
@@ -58,6 +91,13 @@ class RvizJointBridge(Node):
 
         topic = str(self.get_parameter("joint_state_topic").value)
         self._publisher = self.create_publisher(JointState, topic, 10)
+        self._state_publisher = self.create_publisher(
+            RobotStateSnapshot,
+            str(self.get_parameter("state_topic").value),
+            10,
+        )
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
         for command_topic in GROUP_PREFIXES:
             self.create_subscription(
                 JointGroupCommand,
@@ -75,6 +115,9 @@ class RvizJointBridge(Node):
         )
         self.create_timer(
             1.0 / self._publish_rate_hz, self._publish_joint_state
+        )
+        self.create_timer(
+            1.0 / self._state_publish_rate_hz, self._publish_state
         )
         self.get_logger().info(
             f"publishing {len(VISUALIZED_JOINT_NAMES)} joints on {topic}"
@@ -196,6 +239,49 @@ class RvizJointBridge(Node):
             self._effort[name] for name in VISUALIZED_JOINT_NAMES
         ]
         self._publisher.publish(message)
+
+    def _lookup_pose(self, frame: str):
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._reference_frame, frame, Time()
+            )
+        except TransformException:
+            return None
+        values = [
+            transform.transform.translation.x,
+            transform.transform.translation.y,
+            transform.transform.translation.z,
+            transform.transform.rotation.x,
+            transform.transform.rotation.y,
+            transform.transform.rotation.z,
+            transform.transform.rotation.w,
+        ]
+        return pose_from_values(values)
+
+    def _publish_state(self) -> None:
+        message = RobotStateSnapshot()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self._reference_frame
+        message.source = "sim"
+        message.reference_frame = self._reference_frame
+        message.joint_names = list(COMPARABLE_JOINT_NAMES)
+        message.joint_positions = [
+            self._position[name] for name in COMPARABLE_JOINT_NAMES
+        ]
+        message.left_end_effector_frame = self._left_ee_frame
+        message.right_end_effector_frame = self._right_ee_frame
+
+        left_pose = self._lookup_pose(self._left_ee_frame)
+        message.left_end_effector_valid = left_pose is not None
+        if left_pose is not None:
+            message.left_end_effector_pose = left_pose
+
+        right_pose = self._lookup_pose(self._right_ee_frame)
+        message.right_end_effector_valid = right_pose is not None
+        if right_pose is not None:
+            message.right_end_effector_pose = right_pose
+
+        self._state_publisher.publish(message)
 
 
 def main(args: list[str] | None = None) -> None:

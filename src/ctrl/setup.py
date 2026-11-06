@@ -28,6 +28,7 @@ setup(
             'grab = ctrl.grab:main',
             'real_robot_bridge = ctrl.real_robot_bridge:main',
             'rviz_joint_bridge = ctrl.rviz_joint_bridge:main',
+            'state_comparator = ctrl.state_comparator:main',
             (
                 'raise_body_lower_arms_test = '
                 'ctrl.raise_body_lower_arms_test:main'
