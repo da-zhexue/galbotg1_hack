@@ -1,0 +1,210 @@
+"""ROS-free state controller using the official Galbot Python SDK."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import galbot_sdk.g1 as gm
+
+from .poses import (
+    GRIPPER_DEFAULT_WIDTH_M,
+    GRIPPER_EFFORT,
+    GRIPPER_GRAB_WIDTH_M,
+    GRIPPER_VELOCITY_MPS,
+    HEAD_DEFAULT_POSITION,
+    LEFT_ARM_DEFAULT_POSITION,
+    LEFT_ARM_DROP_WAYPOINTS,
+    LEFT_ARM_GRAB_POSITION,
+    LEG_DEFAULT_POSITION,
+    LEG_GRAB_POSITION,
+    LEG_DROP_POSITION,
+    RIGHT_ARM_DEFAULT_POSITION,
+    RIGHT_ARM_DROP_WAYPOINTS,
+    RIGHT_ARM_GRAB_POSITION,
+)
+
+LEG_JOINT_NAMES = tuple(f"leg_joint{index}" for index in range(1, 6))
+HEAD_JOINT_NAMES = ("head_joint1", "head_joint2")
+LEFT_ARM_JOINT_NAMES = tuple(
+    f"left_arm_joint{index}" for index in range(1, 8)
+)
+RIGHT_ARM_JOINT_NAMES = tuple(
+    f"right_arm_joint{index}" for index in range(1, 8)
+)
+
+
+class GrabboxError(RuntimeError):
+    """Raised when an SDK command does not complete successfully."""
+
+
+class GrabBox:
+    """Control default, grab, and drop states through an initialized SDK robot."""
+
+    def __init__(
+        self,
+        robot: gm.GalbotRobot,
+        motion: gm.GalbotMotion | None = None,
+        *,
+        speed_rad_s: float = 0.02,
+        timeout_s: float = 20.0,
+        planning_timeout_s: float = 120.0,
+        trajectory_step_s: float = 0.1,
+    ) -> None:
+        if robot is None:
+            raise ValueError("robot must be a GalbotRobot instance")
+        self.robot = robot
+        self.motion = motion if motion is not None else gm.GalbotMotion()
+        if not self.motion.init():
+            raise GrabboxError("GalbotMotion initialization failed")
+        self.speed_rad_s = float(speed_rad_s)
+        self.timeout_s = float(timeout_s)
+        self.planning_timeout_s = float(planning_timeout_s)
+        self.trajectory_step_s = float(trajectory_step_s)
+
+    def _require_success(self, operation: str, status: gm.ControlStatus) -> None:
+        if status != gm.ControlStatus.SUCCESS:
+            raise GrabboxError(f"{operation} failed: {status}")
+
+    def _set_joints(
+        self,
+        joint_names: Sequence[str],
+        positions: Sequence[float],
+        *,
+        blocking: bool = True,
+    ) -> None:
+        status = self.robot.set_joint_positions(
+            joint_positions=list(positions),
+            joint_groups=[],
+            joint_names=list(joint_names),
+            is_blocking=blocking,
+            speed_rad_s=self.speed_rad_s,
+            timeout_s=self.timeout_s,
+        )
+        self._require_success(
+            f"set_joint_positions({len(joint_names)} joints)", status
+        )
+
+    def _set_gripper(self, width_m: float) -> None:
+        for side in ("left", "right"):
+            status = self.robot.set_gripper_command(
+                end_effector=f"{side}_gripper",
+                width_m=width_m,
+                velocity_mps=GRIPPER_VELOCITY_MPS,
+                effort=GRIPPER_EFFORT,
+                is_blocking=True,
+            )
+            self._require_success(f"set_{side}_gripper", status)
+
+    def _set_default_legs(self) -> None:
+        self._set_joints(LEG_JOINT_NAMES, LEG_DEFAULT_POSITION)
+
+    def _set_grab_legs(self) -> None:
+        self._set_joints(LEG_JOINT_NAMES, LEG_GRAB_POSITION)
+
+    def _set_grab_arms(self) -> None:
+        names = HEAD_JOINT_NAMES + LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES
+        positions = (
+            HEAD_DEFAULT_POSITION
+            + LEFT_ARM_GRAB_POSITION
+            + RIGHT_ARM_GRAB_POSITION
+        )
+        self._set_joints(names, positions)
+
+    def _plan_default_arms(self) -> None:
+        left_names = list(self.motion.get_chain_joint_names("left_arm"))
+        right_names = list(self.motion.get_chain_joint_names("right_arm"))
+        if len(left_names) != 7 or len(right_names) != 7:
+            raise GrabboxError(
+                "failed to query left/right arm joint names from GalbotMotion"
+            )
+
+        left_target = gm.MotionPlanChainTarget()
+        left_target.chain_name = "left_arm"
+        left_target.mode = gm.MotionPlanTargetMode.kJoint
+        left_target.joint.chain_name = "left_arm"
+        left_target.joint.joint_names = left_names
+        left_target.joint.joint_positions = list(
+            LEFT_ARM_DEFAULT_POSITION
+        )
+
+        right_target = gm.MotionPlanChainTarget()
+        right_target.chain_name = "right_arm"
+        right_target.mode = gm.MotionPlanTargetMode.kJoint
+        right_target.joint.chain_name = "right_arm"
+        right_target.joint.joint_names = right_names
+        right_target.joint.joint_positions = list(
+            RIGHT_ARM_DEFAULT_POSITION
+        )
+
+        params = gm.Parameter()
+        params.set_direct_execute(True)
+        params.set_blocking(True)
+        params.set_timeout(self.planning_timeout_s)
+        # The official G1 home trajectory example disables collision checking
+        # because MPS reports this known home interpolation as FAULT.
+        params.set_check_collision(False)
+        params.set_enable_env_collision_check(False)
+        params.set_reference_frame("base_link")
+        params.set_actuate("with_chain_only")
+
+        status, _ = self.motion.traj_plan(
+            [[left_target, right_target]],
+            params,
+        )
+        if status != gm.MotionStatus.SUCCESS:
+            status_name = self.motion.status_to_string(status)
+            raise GrabboxError(
+                "single-point default arm planning failed: "
+                f"{status} ({status_name})"
+            )
+
+    def default(self) -> None:
+        """Move to the raised-body, arms-down, fully-open default state."""
+        self._set_default_legs()
+        self._set_joints(HEAD_JOINT_NAMES, HEAD_DEFAULT_POSITION)
+        self._plan_default_arms()
+        self._set_gripper(GRIPPER_DEFAULT_WIDTH_M)
+
+    def grab(self) -> None:
+        """Move to the raised-body grab state with 19 cm TCP spacing."""
+        self._set_grab_legs()
+        self._set_grab_arms()
+        self._set_gripper(GRIPPER_GRAB_WIDTH_M)
+
+    def _build_drop_trajectory(self) -> gm.Trajectory:
+        trajectory = gm.Trajectory()
+        trajectory.joint_groups = []
+        trajectory.joint_names = list(
+            LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES
+        )
+        points: list[gm.TrajectoryPoint] = []
+        for index, (left, right) in enumerate(
+            zip(LEFT_ARM_DROP_WAYPOINTS, RIGHT_ARM_DROP_WAYPOINTS),
+            start=1,
+        ):
+            point = gm.TrajectoryPoint()
+            point.time_from_start_second = index * self.trajectory_step_s
+            commands: list[gm.JointCommand] = []
+            for position in list(left) + list(right):
+                command = gm.JointCommand()
+                command.position = float(position)
+                commands.append(command)
+            point.joint_command_vec = commands
+            points.append(point)
+        trajectory.points = points
+        return trajectory
+
+    def drop(self) -> None:
+        """Reach grab, lower the legs, then follow the synchronized drop path."""
+        self.grab()
+        self._set_joints(
+            LEG_JOINT_NAMES,
+            LEG_DROP_POSITION,
+            blocking=True,
+        )
+        self._set_gripper(GRIPPER_GRAB_WIDTH_M)
+        status = self.robot.execute_joint_trajectory(
+            self._build_drop_trajectory(),
+            is_blocking=True,
+        )
+        self._require_success("execute_joint_trajectory(drop)", status)

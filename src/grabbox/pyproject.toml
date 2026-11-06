@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grabbox"
+version = "0.1.0"
+description = "ROS-free Galbot arm pose controller using the official SDK"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "Apache-2.0"}
+
+[project.scripts]
+grabbox-real-test = "grabbox.real_test:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["grabbox*"]

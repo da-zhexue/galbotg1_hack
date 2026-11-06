@@ -637,3 +637,10 @@ Agent 完成代码后按以下顺序验证：
 - `/ctrl/state/real`、`/ctrl/state/sim` 分别发布真机与仿真状态；
   `/ctrl/state/error` 发布关节角、左右末端位置和姿态误差。
 - 末端位姿统一使用 `base_link -> left/right_gripper_tcp_link`。
+- `src/grabbox` 是独立的无 ROS Python 包。顶层导出 `GalbotRobot` 和
+  `GrabBox`，由调用方初始化 `GalbotRobot` 后传入 `GrabBox`，提供
+  `default()`、`grab()`、`drop()` 三个直接控制真机的状态函数。
+- `grabbox.default()` 的左右臂使用 `GalbotMotion.motion_plan()` 单路点协调
+  规划；腿部和头部仍使用直接关节设置。
+- `python -m grabbox.real_test` 是真机安全测试入口，默认执行
+  `default -> grab -> drop`，动作前要求输入 `YES`。
