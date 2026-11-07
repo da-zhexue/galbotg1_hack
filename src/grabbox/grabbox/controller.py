@@ -256,15 +256,15 @@ class GrabBox:
         )
 
     def _plan_grab_with_obstacle(self) -> None:
-        # status = self.motion.add_obstacle(
-        #     obstacle_id=GRAB_OBSTACLE_ID,
-        #     obstacle_type="box",
-        #     pose=list(GRAB_OBSTACLE_POSE),
-        #     scale=list(GRAB_OBSTACLE_SCALE),
-        #     target_frame="base_link",
-        # )
-        # if status != gm.MotionStatus.SUCCESS:
-        #     raise GrabboxError(f"add grab obstacle failed: {status}")
+        status = self.motion.add_obstacle(
+            obstacle_id=GRAB_OBSTACLE_ID,
+            obstacle_type="box",
+            pose=list(GRAB_OBSTACLE_POSE),
+            scale=list(GRAB_OBSTACLE_SCALE),
+            target_frame="base_link",
+        )
+        if status != gm.MotionStatus.SUCCESS:
+            raise GrabboxError(f"add grab obstacle failed: {status}")
         try:
             self._plan_grab_arms()
         finally:

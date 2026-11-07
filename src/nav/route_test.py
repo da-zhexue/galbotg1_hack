@@ -5,15 +5,16 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from collections.abc import Callable, Sequence
 
-from galbot_sdk.g1 import GalbotRobot
+from galbot_sdk.g1 import GalbotNavigation, GalbotRobot
 
 if __package__:
-    from .g1_route import G1Route, G1RouteError
+    from .g1_route import G1Route, G1RouteError, check_numpy_available
 else:
-    from g1_route import G1Route, G1RouteError
+    from g1_route import G1Route, G1RouteError, check_numpy_available
 
 
 REAL_TEST_ACTIONS = (
@@ -24,7 +25,10 @@ REAL_TEST_ACTIONS = (
     "right-50cm-3",
     "right-50cm-4",
     "forward-100cm",
+    "navigate-door-100cm",
 )
+
+NEEDS_NAVIGATION = frozenset({"all", "navigate-door-100cm"})
 
 
 def _parse_args(
@@ -85,6 +89,10 @@ def _actions(
         "right-50cm-3": ("Right 50cm - 3", route.right_50cm_3),
         "right-50cm-4": ("Right 50cm - 4", route.right_50cm_4),
         "forward-100cm": ("Forward 100cm", route.forward_100cm),
+        "navigate-door-100cm": (
+            "Navigate Door 100cm",
+            route.navigate_to_door,
+        ),
     }
 
 
@@ -105,6 +113,16 @@ def _run_test_actions(route: G1Route, selection: str) -> None:
         )
         action()
         print(f"[g1-route] action completed: {action_id}")
+
+
+def _stop_navigation(navigation: GalbotNavigation | None) -> None:
+    if navigation is None:
+        return
+    try:
+        success, status = navigation.stop_navigation()
+        print(f"[g1-route] navigation stop: {success} {status}")
+    except Exception as error:
+        print(f"[g1-route] navigation stop error: {error}")
 
 
 def _stop_robot(robot: GalbotRobot, route: G1Route | None) -> None:
@@ -144,6 +162,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("[g1-route] test cancelled")
         return 2
 
+    if args.action in NEEDS_NAVIGATION:
+        try:
+            check_numpy_available()
+        except G1RouteError as error:
+            print(f"[g1-route] {error}")
+            print(
+                "[g1-route] install a supported numpy for "
+                f"{sys.executable}, for example:"
+            )
+            print(
+                f"  {sys.executable} -m pip install --user "
+                "'numpy==1.24.4'"
+            )
+            return 1
+
     robot = GalbotRobot()
     print("[g1-route] initializing Galbot G1")
     if not robot.init():
@@ -151,6 +184,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         robot.destroy()
         return 1
     print("[g1-route] GalbotRobot initialized")
+
+    navigation: GalbotNavigation | None = None
+    if args.action in NEEDS_NAVIGATION:
+        try:
+            navigation = GalbotNavigation()
+            print("[g1-route] initializing GalbotNavigation")
+            if not navigation.init():
+                print("[g1-route] GalbotNavigation initialization failed")
+                navigation = None
+        except Exception as error:
+            print(f"[g1-route] GalbotNavigation init error: {error}")
+            navigation = None
+        if navigation is None:
+            _shutdown_robot(robot)
+            return 1
 
     route: G1Route | None = None
     exit_code = 0
@@ -160,6 +208,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_s=args.timeout_s,
             step_settle_s=args.settle_s,
             controller_settle_s=args.controller_settle_s,
+            navigation=navigation,
         )
         time.sleep(1.0)
         route.ensure_pose_controller()
@@ -177,6 +226,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[g1-route] test failed: {error}")
         exit_code = 1
     finally:
+        _stop_navigation(navigation)
         _stop_robot(robot, route)
         _shutdown_robot(robot)
 

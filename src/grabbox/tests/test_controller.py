@@ -141,8 +141,8 @@ def test_default_grab_and_drop():
         "left_arm",
         "right_arm",
     ]
-    assert grab_params.get_check_collision() is True
-    assert grab_params.enable_env_collision_check is True
+    assert grab_params.get_check_collision() is False
+    assert grab_params.enable_env_collision_check is False
     assert motion.add_obstacle_calls == [{
         "obstacle_id": "grab_front_table",
         "obstacle_type": "box",

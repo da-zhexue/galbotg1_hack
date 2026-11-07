@@ -53,7 +53,8 @@ finally:
 `drop_body_tolerance_m` 调整。
 
 `grab()` 规划时按 ID 添加 / 移除一个 `base_link` 下方的桌面式障碍物，
-用于保证双臂环境碰撞检查约束临时 table。
+仅保留在 Motion 环境中用于独立碰撞检查；由于 `traj_plan()` 路径碰撞检查
+在 G1 上会触发已知 `FAULT`，这里不再把它作为规划路径校验。
 
 抓取和下放姿态已与本地 URDF 限位核对，并把贴近 `left/right_arm_joint6`
 机械限位的路点收进安全余量，避免控制器因关节限位锁存故障。
