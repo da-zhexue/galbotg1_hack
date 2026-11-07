@@ -19,7 +19,6 @@ from .poses import (
     LEFT_ARM_DROP_WAYPOINTS,
     LEFT_ARM_GRAB_POSITION,
     LEFT_GRAB_TCP_POSITION_M,
-    LEG_DEFAULT_POSITION,
     LEG_GRAB_LIFT_POSITION,
     LEG_GRAB_POSITION,
     LEG_DROP_POSITION,
@@ -42,6 +41,34 @@ RIGHT_ARM_JOINT_NAMES = tuple(
 GRAB_OBSTACLE_ID = "grab_front_table"
 GRAB_OBSTACLE_POSE = (0.5, 0.0, 0.375, 0.0, 0.0, 0.0, 1.0)
 GRAB_OBSTACLE_SCALE = (0.6, 2.0, 0.75)
+
+# A rejected grab plan is accepted when the box already stops the two
+# hands and their actual TCP spacing is within this distance.
+GRAB_ACCEPT_TCP_SPACING_M = 0.25
+
+# Fixed distance from each arm's end-effector mount link to the gripper
+# TCP along the mount x axis (gripper flange 0.0065 m + TCP 0.13996 m).
+TCP_OFFSET_FROM_MOUNT_M = 0.14646
+
+
+def _rotate_quaternion(
+    quaternion: Sequence[float],
+    vector: Sequence[float],
+) -> tuple[float, float, float]:
+    x, y, z, w = (float(value) for value in quaternion)
+    norm = math.sqrt(x * x + y * y + z * z + w * w)
+    if norm == 0.0:
+        raise ValueError("quaternion must not be zero")
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    vx, vy, vz = (float(value) for value in vector)
+    tx = 2.0 * (y * vz - z * vy)
+    ty = 2.0 * (z * vx - x * vz)
+    tz = 2.0 * (x * vy - y * vx)
+    return (
+        vx + w * tx + (y * tz - z * ty),
+        vy + w * ty + (z * tx - x * tz),
+        vz + w * tz + (x * ty - y * tx),
+    )
 
 
 class GrabboxError(RuntimeError):
@@ -114,9 +141,6 @@ class GrabBox:
             )
             self._require_success(f"set_{side}_gripper", status)
 
-    def _set_default_legs(self) -> None:
-        self._set_joints(LEG_JOINT_NAMES, LEG_DEFAULT_POSITION)
-
     def _set_grab_legs(self) -> None:
         self._set_joints(LEG_JOINT_NAMES, LEG_GRAB_POSITION)
 
@@ -128,9 +152,7 @@ class GrabBox:
         )
         self._set_joints(names, positions)
 
-    def _read_frame_position(
-        self, frame: str
-    ) -> tuple[float, float, float]:
+    def _read_frame_pose(self, frame: str) -> tuple[float, ...]:
         try:
             values, timestamp_ns = self.robot.get_transform(
                 "base_link",
@@ -145,12 +167,59 @@ class GrabBox:
         if (
             len(values) != 7
             or timestamp_ns == 0
-            or not all(math.isfinite(value) for value in values[:3])
+            or not all(math.isfinite(value) for value in values)
+            or math.isclose(
+                sum(value * value for value in values[3:]),
+                0.0,
+                abs_tol=1e-12,
+            )
         ):
             raise GrabboxError(
                 f"failed to read transform base_link -> {frame}"
             )
-        return float(values[0]), float(values[1]), float(values[2])
+        return tuple(float(value) for value in values)
+
+    def _read_frame_position(
+        self, frame: str
+    ) -> tuple[float, float, float]:
+        pose = self._read_frame_pose(frame)
+        return pose[0], pose[1], pose[2]
+
+    def _read_tcp_position(
+        self, side: str
+    ) -> tuple[float, float, float]:
+        # The gripper TCP links are not published in the robot TF tree,
+        # so read the arm mount link and apply the fixed tool offset.
+        pose = self._read_frame_pose(
+            f"{side}_arm_end_effector_mount_link"
+        )
+        offset = _rotate_quaternion(
+            pose[3:],
+            (TCP_OFFSET_FROM_MOUNT_M, 0.0, 0.0),
+        )
+        return (
+            pose[0] + offset[0],
+            pose[1] + offset[1],
+            pose[2] + offset[2],
+        )
+
+    def _tcp_spacing_within(self, limit_m: float) -> bool:
+        try:
+            left = self._read_tcp_position("left")
+            right = self._read_tcp_position("right")
+        except GrabboxError as error:
+            print(
+                f"[grabbox] TCP spacing check failed: {error}",
+                flush=True,
+            )
+            return False
+        spacing = math.dist(left, right)
+        print(
+            f"[grabbox] TCP spacing {spacing:.4f} m "
+            f"(accept limit {limit_m:.4f} m, source: mount link + TCP offset)",
+            flush=True,
+        )
+        return spacing <= limit_m
 
     def _check_drop_preconditions(self) -> None:
         head_position = self._read_frame_position("head_base_link")
@@ -192,6 +261,7 @@ class GrabBox:
         *,
         operation: str,
         enable_collisions: bool,
+        accept_tcp_spacing_m: float | None = None,
     ) -> None:
         left_names = list(self.motion.get_chain_joint_names("left_arm"))
         right_names = list(self.motion.get_chain_joint_names("right_arm"))
@@ -234,6 +304,18 @@ class GrabBox:
             params,
         )
         if status != gm.MotionStatus.SUCCESS:
+            if (
+                accept_tcp_spacing_m is not None
+                and self._tcp_spacing_within(accept_tcp_spacing_m)
+            ):
+                print(
+                    "[grabbox] arm planning returned "
+                    f"{status} but the TCP spacing is within "
+                    f"{accept_tcp_spacing_m:.2f} m; "
+                    "treating the grasp as clamped",
+                    flush=True,
+                )
+                return
             status_name = self.motion.status_to_string(status)
             raise GrabboxError(
                 f"{operation} arm planning failed: "
@@ -254,6 +336,7 @@ class GrabBox:
             RIGHT_ARM_GRAB_POSITION,
             operation="single-point grab",
             enable_collisions=False,
+            accept_tcp_spacing_m=GRAB_ACCEPT_TCP_SPACING_M,
         )
 
     def _plan_grab_with_obstacle(self) -> None:
@@ -276,8 +359,8 @@ class GrabBox:
                 )
 
     def default(self) -> None:
-        """Move to the raised-body, raised-TCP, fully-open default state."""
-        self._set_default_legs()
+        """Move to the grab stance with the hands 0.30 m apart."""
+        self._set_grab_legs()
         self._set_joints(HEAD_JOINT_NAMES, HEAD_DEFAULT_POSITION)
         self._plan_default_arms()
         self._set_gripper(GRIPPER_DEFAULT_WIDTH_M)

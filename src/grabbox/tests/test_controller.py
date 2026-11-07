@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from grabbox import GrabboxError, GrabBox
+from grabbox.controller import TCP_OFFSET_FROM_MOUNT_M
 from grabbox.poses import (
     GRAB_HEAD_BASE_HEIGHT_M,
     LEFT_ARM_DROP_WAYPOINTS,
@@ -35,6 +36,18 @@ class FakeRobot:
             "right_gripper_tcp_link": list(
                 RIGHT_GRAB_TCP_POSITION_M
             ),
+            # With an identity mount orientation the controller places
+            # the TCP one tool offset along x from the mount link.
+            "left_arm_end_effector_mount_link": [
+                LEFT_GRAB_TCP_POSITION_M[0] - TCP_OFFSET_FROM_MOUNT_M,
+                LEFT_GRAB_TCP_POSITION_M[1],
+                LEFT_GRAB_TCP_POSITION_M[2],
+            ],
+            "right_arm_end_effector_mount_link": [
+                RIGHT_GRAB_TCP_POSITION_M[0] - TCP_OFFSET_FROM_MOUNT_M,
+                RIGHT_GRAB_TCP_POSITION_M[1],
+                RIGHT_GRAB_TCP_POSITION_M[2],
+            ],
         }
 
     def init(self):
@@ -192,6 +205,18 @@ def test_default_uses_single_point_arm_planning():
 def test_grab_removes_obstacle_when_planning_fails():
     robot = FakeRobot()
     motion = FakeMotion()
+    # Keep the actual TCP spacing wider than the accept limit so the
+    # planning failure is still raised.
+    robot.transforms["left_arm_end_effector_mount_link"] = [
+        0.69 - TCP_OFFSET_FROM_MOUNT_M,
+        0.20,
+        0.85,
+    ]
+    robot.transforms["right_arm_end_effector_mount_link"] = [
+        0.69 - TCP_OFFSET_FROM_MOUNT_M,
+        -0.20,
+        0.85,
+    ]
     motion.plan_status = MotionStatus.FAULT
     box = GrabBox(robot, motion)
 
@@ -203,6 +228,35 @@ def test_grab_removes_obstacle_when_planning_fails():
 
     assert motion.plan_calls[0][0] == "traj_plan"
     assert motion.add_obstacle_calls
+    assert motion.remove_obstacle_calls == ["grab_front_table"]
+
+
+def test_grab_accepts_fault_when_tcp_spacing_within_limit():
+    robot = FakeRobot()
+    motion = FakeMotion()
+    motion.plan_status = MotionStatus.FAULT
+    box = GrabBox(robot, motion)
+
+    box.grab()
+
+    assert motion.add_obstacle_calls
+    assert motion.remove_obstacle_calls == ["grab_front_table"]
+
+
+def test_grab_raises_when_tcp_pose_cannot_be_read():
+    robot = FakeRobot()
+    robot.transforms.pop("left_arm_end_effector_mount_link")
+    robot.transforms.pop("right_arm_end_effector_mount_link")
+    motion = FakeMotion()
+    motion.plan_status = MotionStatus.FAULT
+    box = GrabBox(robot, motion)
+
+    with pytest.raises(
+        GrabboxError,
+        match="single-point grab arm planning failed",
+    ):
+        box.grab()
+
     assert motion.remove_obstacle_calls == ["grab_front_table"]
 
 

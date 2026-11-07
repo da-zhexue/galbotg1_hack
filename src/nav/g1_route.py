@@ -36,8 +36,10 @@ class G1Route:
     LINEAR_STATIONARY_TOLERANCE_MPS = 0.03
     ANGULAR_STATIONARY_TOLERANCE_RAD_S = 0.05
     TOTAL_PATH_LENGTH_M = 3.8
+    TABLE_EXIT_SPEED_MPS = 0.2
     NAVIGATION_READY_TIMEOUT_S = 30.0
-    NAV_GOAL_X_M = 1.0
+    NAV_GOAL_FORWARD_M = 2.0
+    NAV_GOAL_LEFT_M = 2.0
     NAV_MIN_DISPLACEMENT_M = 0.5
 
     def __init__(
@@ -129,11 +131,17 @@ class G1Route:
         )
 
     def _goal_pose_in_map(self, current_pose) -> list[float]:
-        """Convert the relative forward goal into the map frame."""
+        """Convert the relative forward/left goal into the map frame."""
         yaw = self._planar_yaw(current_pose)
+        forward = self.NAV_GOAL_FORWARD_M
+        left = self.NAV_GOAL_LEFT_M
         return [
-            float(current_pose[0]) + self.NAV_GOAL_X_M * math.cos(yaw),
-            float(current_pose[1]) + self.NAV_GOAL_X_M * math.sin(yaw),
+            float(current_pose[0])
+            + forward * math.cos(yaw)
+            - left * math.sin(yaw),
+            float(current_pose[1])
+            + forward * math.sin(yaw)
+            + left * math.cos(yaw),
             float(current_pose[2]),
             0.0,
             0.0,
@@ -169,7 +177,7 @@ class G1Route:
         return True
 
     def navigate_to_door(self) -> None:
-        """Navigate one meter forward through the SDK navigation service."""
+        """Navigate 2 m forward and 2 m left through the navigation service."""
         if not self._navigation_ready():
             raise G1RouteError(
                 "Navigation is not ready: create and init GalbotNavigation, "
@@ -180,6 +188,11 @@ class G1Route:
         goal_map = self._goal_pose_in_map(current_pose)
         print("[g1-route] current map pose:")
         print(current_pose)
+        print(
+            "[g1-route] relative goal: "
+            f"forward={self.NAV_GOAL_FORWARD_M:.2f} m, "
+            f"left={self.NAV_GOAL_LEFT_M:.2f} m"
+        )
         print("[g1-route] goal map pose:")
         print(goal_map)
         print("Navigation state before:", self._navigation_state())
@@ -197,10 +210,11 @@ class G1Route:
             print(f"Path reachability check failed: {error}")
 
         odom_before = self.robot.get_odom()
+        # Navigate to the same map-frame goal that was checked above.
         success, status = self.navigation.navigate_to_goal_v2(
-            [2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            goal_map,
             [0.2, 0.2, 0.3],
-            pose_frame="base_link",
+            pose_frame="map",
             enable_collision_check=True,
             is_blocking=True,
             timeout=self.navigation_timeout_s,
@@ -269,20 +283,30 @@ class G1Route:
         print("Current odometry:")
         print(self.robot.get_odom())
 
-    def forward_80cm(self) -> None:
-        self._execute_action("Forward 80cm", 0.90, 0.00, 0.0, 6.0)
+    def forward_60cm(self) -> None:
+        self._execute_action("Forward 60cm", 0.60, 0.00, 0.0, 6.0)
 
-    def right_50cm_1(self) -> None:
-        self._execute_action("Right 50cm - 1", 0.00, 0.00, 0.0, 1.0)
+    def forward_40cm(self) -> None:
+        self._execute_action("Forward 40cm", 0.40, 0.00, 0.0, 4.0)
 
-    def right_50cm_2(self) -> None:
-        self._execute_action("Right 50cm - 2", 0.00, -0.50, 0.0, 5.0)
+    def right_50cm(self) -> None:
+        self._execute_action("Right 50cm", 0.00, -0.50, 0.0, 5.0)
 
-    def right_50cm_3(self) -> None:
-        self._execute_action("Right 50cm - 3", 0.00, -0.50, 0.0, 5.0)
+    def right_55cm(self) -> None:
+        self._execute_action("Right 55cm", 0.00, -0.55, 0.0, 5.5)
 
-    def right_50cm_4(self) -> None:
-        self._execute_action("Right 50cm - 4", 0.00, -1.00, 0.0, 5.0)
+    def leave_table(self, distance_m: float) -> None:
+        """Move right by distance_m to clear the right edge of the table."""
+        distance_m = float(distance_m)
+        if distance_m <= 0.0:
+            raise ValueError("distance_m must be positive")
+        self._execute_action(
+            "Leave table",
+            0.00,
+            -distance_m,
+            0.0,
+            distance_m / self.TABLE_EXIT_SPEED_MPS,
+        )
 
     def forward_200cm(self) -> None:
         self._execute_action("Forward 200cm", 2.00, 0.00, 0.0, 8.0)

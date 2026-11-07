@@ -13,26 +13,28 @@ LEG_GRAB_LIFT_POSITION = [0.246910988, 0.991163202, 0.644252215, 0.0, 0.0]
 LEG_DROP_POSITION = [0.0, 0.0, 0.3, 0.0, 0.0]
 
 HEAD_DEFAULT_POSITION = [0.0, 0.0]
-# IK solution that raises the default TCP by 0.30 m while keeping its
-# base-frame x/y and staying at least 0.09 rad inside the arm joint limits.
-# The right arm is the exact mirror of the left arm.
+# Grab-pose IK solution (same TCP x/z and orientation as the grab pose)
+# with the two TCPs 0.30 m apart instead of the grab spacing of 0.21 m.
+# The smallest joint-limit margin is 0.24 rad; the right arm is the exact
+# mirror of the left arm.
+DEFAULT_TCP_SPACING_M = 0.30
 LEFT_ARM_DEFAULT_POSITION = [
-    2.472939087,
-    -1.508062789,
-    -0.800806878,
-    -2.467993878,
-    -0.240819441,
-    -0.725844641,
-    0.158295733,
+    0.753363700,
+    -1.368211572,
+    -0.122525471,
+    -1.756951291,
+    -1.703715810,
+    -0.510638034,
+    -0.492941985,
 ]
 RIGHT_ARM_DEFAULT_POSITION = [
-    -2.472939087,
-    1.508062789,
-    0.800806878,
-    2.467993878,
-    0.240819441,
-    0.725844641,
-    -0.158295733,
+    -0.753363700,
+    1.368211572,
+    0.122525471,
+    1.756951291,
+    1.703715810,
+    0.510638034,
+    0.492941985,
 ]
 
 # IK solution that moves both grab TCPs 0.20 m forward in base_link x with

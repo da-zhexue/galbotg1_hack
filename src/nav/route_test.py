@@ -19,11 +19,11 @@ else:
 
 REAL_TEST_ACTIONS = (
     "all",
-    "forward-80cm",
-    "right-50cm-1",
-    "right-50cm-2",
-    "right-50cm-3",
-    "right-50cm-4",
+    "forward-60cm",
+    "right-50cm",
+    "right-55cm",
+    "forward-40cm",
+    "leave-table",
     "forward-200cm",
     "navigate-door-100cm",
 )
@@ -83,11 +83,14 @@ def _actions(
     route: G1Route,
 ) -> dict[str, tuple[str, Callable[[], None]]]:
     return {
-        "forward-80cm": ("Forward 80cm", route.forward_80cm),
-        "right-50cm-1": ("Right 50cm - 1", route.right_50cm_1),
-        "right-50cm-2": ("Right 50cm - 2", route.right_50cm_2),
-        "right-50cm-3": ("Right 50cm - 3", route.right_50cm_3),
-        "right-50cm-4": ("Right 50cm - 4", route.right_50cm_4),
+        "forward-60cm": ("Forward 60cm", route.forward_60cm),
+        "right-50cm": ("Right 50cm", route.right_50cm),
+        "right-55cm": ("Right 55cm", route.right_55cm),
+        "forward-40cm": ("Forward 40cm", route.forward_40cm),
+        "leave-table": (
+            "Leave table 100cm",
+            lambda: route.leave_table(1.00),
+        ),
         "forward-200cm": ("Forward 200cm", route.forward_200cm),
         "navigate-door-100cm": (
             "Navigate Door 100cm",

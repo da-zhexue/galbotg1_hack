@@ -42,7 +42,6 @@ class DeliveryState(str, Enum):
     IDLE = "idle"
     ANNOUNCING = "announcing"
     APPROACHING_TABLE = "approaching_table"
-    MOVING_TO_SCAN_1 = "moving_to_scan_1"
     SCANNING_1 = "scanning_1"
     MOVING_TO_SCAN_2 = "moving_to_scan_2"
     SCANNING_2 = "scanning_2"
@@ -67,9 +66,6 @@ TRANSITIONS: dict[DeliveryState, frozenset[DeliveryState]] = {
         {DeliveryState.APPROACHING_TABLE}
     ),
     DeliveryState.APPROACHING_TABLE: frozenset(
-        {DeliveryState.MOVING_TO_SCAN_1}
-    ),
-    DeliveryState.MOVING_TO_SCAN_1: frozenset(
         {DeliveryState.SCANNING_1}
     ),
     DeliveryState.SCANNING_1: frozenset(
@@ -117,6 +113,11 @@ class DeliveryStateMachine:
     """Execute the pickup flow defined in 流程.md."""
 
     SCAN_POSITIONS = 3
+    # Right-hand offsets of the three scan positions from the first one:
+    # first parcel -> second parcel 0.50 m, second -> third 0.55 m.
+    SCAN_RIGHT_OFFSETS_M = (0.0, 0.50, 1.05)
+    # "Outside the table" is 1.00 m to the right of the third parcel.
+    TABLE_EXIT_RIGHT_M = 1.05 + 1.00
 
     def __init__(
         self,
@@ -138,6 +139,7 @@ class DeliveryStateMachine:
         self.log = log
         self.state = DeliveryState.IDLE
         self.command: PickupCommand | None = None
+        self.scan_position: int | None = None
         self.last_scan_code: str | None = None
         self.last_error: str | None = None
 
@@ -154,6 +156,7 @@ class DeliveryStateMachine:
             raise ValueError("destination must not be empty")
 
         self.command = PickupCommand(code, destination)
+        self.scan_position = None
         self.last_scan_code = None
         self.last_error = None
         self._transition(DeliveryState.ANNOUNCING, "UI command received")
@@ -185,7 +188,6 @@ class DeliveryStateMachine:
         return {
             DeliveryState.ANNOUNCING: self._announce_command,
             DeliveryState.APPROACHING_TABLE: self._approach_table,
-            DeliveryState.MOVING_TO_SCAN_1: self._move_to_scan_1,
             DeliveryState.SCANNING_1: self._scan_1,
             DeliveryState.MOVING_TO_SCAN_2: self._move_to_scan_2,
             DeliveryState.SCANNING_2: self._scan_2,
@@ -246,18 +248,10 @@ class DeliveryStateMachine:
 
     def _approach_table(self) -> None:
         self._prepare_motion()
-        self.route.forward_80cm()
-        self._transition(
-            DeliveryState.MOVING_TO_SCAN_1,
-            "arrived behind the table",
-        )
-
-    def _move_to_scan_1(self) -> None:
-        self._prepare_motion()
-        self.route.right_50cm_1()
+        self.route.forward_60cm()
         self._transition(
             DeliveryState.SCANNING_1,
-            "reached first scan position",
+            "reached the first scan position",
         )
 
     def _scan_1(self) -> None:
@@ -265,7 +259,7 @@ class DeliveryStateMachine:
 
     def _move_to_scan_2(self) -> None:
         self._prepare_motion()
-        self.route.right_50cm_2()
+        self.route.right_50cm()
         self._transition(
             DeliveryState.SCANNING_2,
             "reached second scan position",
@@ -276,7 +270,7 @@ class DeliveryStateMachine:
 
     def _move_to_scan_3(self) -> None:
         self._prepare_motion()
-        self.route.right_50cm_3()
+        self.route.right_55cm()
         self._transition(
             DeliveryState.SCANNING_3,
             "reached third scan position",
@@ -290,6 +284,7 @@ class DeliveryStateMachine:
         position: int,
         mismatch_next: DeliveryState | None,
     ) -> None:
+        self.scan_position = position
         code = self._read_pickup_code(position)
         self.last_scan_code = code
         if position == self.SCAN_POSITIONS:
@@ -344,6 +339,8 @@ class DeliveryStateMachine:
         pass
 
     def _grab(self) -> None:
+        self._prepare_motion()
+        self.route.forward_40cm()
         self.route.check_stationary()
         self.grabber.grab()
         self.grabber.lift()
@@ -355,7 +352,11 @@ class DeliveryStateMachine:
 
     def _leave_table(self) -> None:
         self._prepare_motion()
-        self.route.right_50cm_4()
+        if self.scan_position is None:
+            raise DeliveryError("scan position is not recorded")
+        right_offset = self.SCAN_RIGHT_OFFSETS_M[self.scan_position - 1]
+        distance = self.TABLE_EXIT_RIGHT_M - right_offset
+        self.route.leave_table(distance)
         self._transition(
             DeliveryState.NAVIGATING_TO_DOOR,
             "cleared the table edge",

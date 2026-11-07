@@ -37,10 +37,10 @@ finally:
 
 状态函数：
 
-- `default()`：默认抬升站姿、头部归中、双臂末端比原 home 姿态抬高
-  `0.30 m`、夹爪全开 `0.12 m`；左右臂通过 `GalbotMotion.traj_plan()`
-  单路点协调规划。该姿态基于官方 G1 home 示例做 IK 调整，因此同样关闭轨迹
-  碰撞校验
+- `default()`：grab 站姿、头部归中，双臂保持 grab 的 TCP 位置和朝向，
+  左右手末端间距加大到 `0.30 m`（grab 为 `0.21 m`）、夹爪全开 `0.12 m`；
+  左右臂通过 `GalbotMotion.traj_plan()` 单路点协调规划。该姿态为 grab
+  姿态的 IK 调整，因此同样关闭轨迹碰撞校验
 - `grab()`：腿部和头部使用直接关节设置，左右臂通过 `traj_plan()` 单路点
   协调规划到 Grab 目标，双手 TCP 间距约 `0.21 m`，夹爪半开
   `0.06 m`；当前目标相对上一版沿机体前方前移 `0.20 m`，腿部站姿
@@ -51,6 +51,12 @@ finally:
   从当前 Grab 目标出发，沿 21 个同步路点下降到离地约 `0.08 m`，
   下放终点位置不变
 - `drop_over()`：完整执行 Drop 后，将左右 TCP 间距扩大到 `0.30 m`
+
+`grab()` 的 `traj_plan()` 返回非 `SUCCESS` 时，会读取
+`left/right_arm_end_effector_mount_link` 的 TF 位姿，沿 mount 的 x 轴
+叠加固定工具长度 `0.14646 m` 得到 `left/right_gripper_tcp_link` 的
+实际位置；若双手 TCP 间距在 `0.25 m` 以内，认为双手已经被快递挡住并
+夹住，记录日志后继续后续流程；否则照常报错。
 
 `drop()` 默认要求左右 TCP 位置距离 Grab 目标不超过 `0.03 m`，
 `head_base_link` 高度误差不超过 `0.03 m`。任一条件不满足时会在下发第一条
