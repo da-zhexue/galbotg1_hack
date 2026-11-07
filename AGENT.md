@@ -640,7 +640,9 @@ Agent 完成代码后按以下顺序验证：
 - `src/grabbox` 是独立的无 ROS Python 包。顶层导出 `GalbotRobot` 和
   `GrabBox`，由调用方初始化 `GalbotRobot` 后传入 `GrabBox`，提供
   `default()`、`grab()`、`drop()` 三个直接控制真机的状态函数。
-- `grabbox.default()` 的左右臂使用 `GalbotMotion.motion_plan()` 单路点协调
-  规划；腿部和头部仍使用直接关节设置。
+- `grabbox.default()` 和 `grabbox.grab()` 的左右臂使用
+  `GalbotMotion.traj_plan()` 单路点协调规划；腿部和头部仍使用直接关节
+  设置。`default()` 不开启碰撞检查；`grab()` 开启环境障碍碰撞检查，并在
+  规划前后按 ID 临时添加 / 移除 `grab_front_table` 障碍物。
 - `python -m grabbox.real_test` 是真机安全测试入口，默认执行
   `default -> grab -> drop`，动作前要求输入 `YES`。

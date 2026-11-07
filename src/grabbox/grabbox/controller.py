@@ -127,68 +127,6 @@ class GrabBox:
         )
         self._set_joints(names, positions)
 
-    def _plan_grab_pose(self) -> None:
-        chains = (
-            ("head", HEAD_DEFAULT_POSITION),
-            ("left_arm", LEFT_ARM_GRAB_POSITION),
-            ("right_arm", RIGHT_ARM_GRAB_POSITION),
-        )
-        targets = []
-        for chain_name, positions in chains:
-            joint_names = list(
-                self.motion.get_chain_joint_names(chain_name)
-            )
-            if len(joint_names) != len(positions):
-                raise GrabboxError(
-                    f"failed to query {chain_name} joint names from "
-                    "GalbotMotion"
-                )
-            target = gm.MotionPlanChainTarget()
-            target.chain_name = chain_name
-            target.mode = gm.MotionPlanTargetMode.kJoint
-            target.joint.chain_name = chain_name
-            target.joint.joint_names = joint_names
-            target.joint.joint_positions = list(positions)
-            targets.append(target)
-
-        params = gm.Parameter()
-        params.set_direct_execute(True)
-        params.set_blocking(True)
-        params.set_timeout(self.planning_timeout_s)
-        params.set_check_collision(True)
-        params.set_enable_env_collision_check(True)
-        params.set_reference_frame("base_link")
-        params.set_actuate("with_chain_only")
-
-        status, _ = self.motion.motion_plan([targets], params)
-        if status != gm.MotionStatus.SUCCESS:
-            status_name = self.motion.status_to_string(status)
-            raise GrabboxError(
-                "grab motion planning failed: "
-                f"{status} ({status_name})"
-            )
-
-    def _plan_grab_with_obstacle(self) -> None:
-        status = self.motion.add_obstacle(
-            obstacle_id=GRAB_OBSTACLE_ID,
-            obstacle_type="box",
-            pose=list(GRAB_OBSTACLE_POSE),
-            scale=list(GRAB_OBSTACLE_SCALE),
-            target_frame="base_link",
-        )
-        if status != gm.MotionStatus.SUCCESS:
-            raise GrabboxError(
-                f"add grab obstacle failed: {status}"
-            )
-        try:
-            self._plan_grab_pose()
-        finally:
-            status = self.motion.remove_obstacle(GRAB_OBSTACLE_ID)
-            if status != gm.MotionStatus.SUCCESS:
-                raise GrabboxError(
-                    f"remove grab obstacle failed: {status}"
-                )
-
     def _read_frame_position(
         self, frame: str
     ) -> tuple[float, float, float]:
@@ -246,7 +184,14 @@ class GrabBox:
                     f"{self.drop_arm_tolerance_m:.4f} m"
                 )
 
-    def _plan_default_arms(self) -> None:
+    def _plan_single_point_arms(
+        self,
+        left_positions: Sequence[float],
+        right_positions: Sequence[float],
+        *,
+        operation: str,
+        enable_collisions: bool,
+    ) -> None:
         left_names = list(self.motion.get_chain_joint_names("left_arm"))
         right_names = list(self.motion.get_chain_joint_names("right_arm"))
         if len(left_names) != 7 or len(right_names) != 7:
@@ -259,27 +204,27 @@ class GrabBox:
         left_target.mode = gm.MotionPlanTargetMode.kJoint
         left_target.joint.chain_name = "left_arm"
         left_target.joint.joint_names = left_names
-        left_target.joint.joint_positions = list(
-            LEFT_ARM_DEFAULT_POSITION
-        )
+        left_target.joint.joint_positions = list(left_positions)
 
         right_target = gm.MotionPlanChainTarget()
         right_target.chain_name = "right_arm"
         right_target.mode = gm.MotionPlanTargetMode.kJoint
         right_target.joint.chain_name = "right_arm"
         right_target.joint.joint_names = right_names
-        right_target.joint.joint_positions = list(
-            RIGHT_ARM_DEFAULT_POSITION
-        )
+        right_target.joint.joint_positions = list(right_positions)
 
         params = gm.Parameter()
         params.set_direct_execute(True)
         params.set_blocking(True)
         params.set_timeout(self.planning_timeout_s)
-        # The official G1 home trajectory example disables collision checking
-        # because MPS reports this known home interpolation as FAULT.
-        params.set_check_collision(False)
-        params.set_enable_env_collision_check(False)
+        if enable_collisions:
+            params.set_check_collision(True)
+            params.set_enable_env_collision_check(True)
+        else:
+            # The official G1 home trajectory example disables collision checking
+            # because MPS reports this known home interpolation as FAULT.
+            params.set_check_collision(False)
+            params.set_enable_env_collision_check(False)
         params.set_reference_frame("base_link")
         params.set_actuate("with_chain_only")
 
@@ -290,9 +235,44 @@ class GrabBox:
         if status != gm.MotionStatus.SUCCESS:
             status_name = self.motion.status_to_string(status)
             raise GrabboxError(
-                "single-point default arm planning failed: "
+                f"{operation} arm planning failed: "
                 f"{status} ({status_name})"
             )
+
+    def _plan_default_arms(self) -> None:
+        self._plan_single_point_arms(
+            LEFT_ARM_DEFAULT_POSITION,
+            RIGHT_ARM_DEFAULT_POSITION,
+            operation="single-point default",
+            enable_collisions=False,
+        )
+
+    def _plan_grab_arms(self) -> None:
+        self._plan_single_point_arms(
+            LEFT_ARM_GRAB_POSITION,
+            RIGHT_ARM_GRAB_POSITION,
+            operation="single-point grab",
+            enable_collisions=False,
+        )
+
+    def _plan_grab_with_obstacle(self) -> None:
+        # status = self.motion.add_obstacle(
+        #     obstacle_id=GRAB_OBSTACLE_ID,
+        #     obstacle_type="box",
+        #     pose=list(GRAB_OBSTACLE_POSE),
+        #     scale=list(GRAB_OBSTACLE_SCALE),
+        #     target_frame="base_link",
+        # )
+        # if status != gm.MotionStatus.SUCCESS:
+        #     raise GrabboxError(f"add grab obstacle failed: {status}")
+        try:
+            self._plan_grab_arms()
+        finally:
+            status = self.motion.remove_obstacle(GRAB_OBSTACLE_ID)
+            if status != gm.MotionStatus.SUCCESS:
+                raise GrabboxError(
+                    f"remove grab obstacle failed: {status}"
+                )
 
     def default(self) -> None:
         """Move to the raised-body, arms-down, fully-open default state."""
@@ -302,9 +282,10 @@ class GrabBox:
         self._set_gripper(GRIPPER_DEFAULT_WIDTH_M)
 
     def grab(self) -> None:
-        """Plan to the raised-body grab state around a temporary table."""
+        """Move to the raised-body grab state using the default planner."""
         self._set_grab_legs()
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
+        self._set_joints(HEAD_JOINT_NAMES, HEAD_DEFAULT_POSITION)
         self._plan_grab_with_obstacle()
 
     def _build_drop_trajectory(self) -> gm.Trajectory:

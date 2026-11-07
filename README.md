@@ -46,5 +46,5 @@ python -m grabbox.real_test --state drop
 
 
 ```
-参考现有grabbox和nav封装，将语音与扫码模块修改为一个类由main.py调用，并完成现在main.py中的TODO部分
+参考现有grabbox和nav封装，将语音与扫码模块修改为一个类由main.py调用，并完成现在main.py中的TODO部分，_speak改为每个不同的话调用不同函数
 ```

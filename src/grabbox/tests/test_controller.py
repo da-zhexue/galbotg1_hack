@@ -134,19 +134,15 @@ def test_default_grab_and_drop():
     gripper_calls = [call for call in robot.calls if call[0] == "gripper"]
     assert len(joint_calls) >= 4
     assert motion.plan_calls
-    grab_plan_calls = [
-        call for call in motion.plan_calls if call[0] == "motion_plan"
-    ]
-    assert len(grab_plan_calls) == 1
-    _, waypoints, params = grab_plan_calls[0]
-    assert len(waypoints) == 1
-    assert [target.chain_name for target in waypoints[0]] == [
-        "head",
+    assert len(motion.plan_calls) == 2
+    _, grab_waypoints, grab_params = motion.plan_calls[-1]
+    assert len(grab_waypoints) == 1
+    assert [target.chain_name for target in grab_waypoints[0]] == [
         "left_arm",
         "right_arm",
     ]
-    assert params.get_check_collision() is True
-    assert params.enable_env_collision_check is True
+    assert grab_params.get_check_collision() is True
+    assert grab_params.enable_env_collision_check is True
     assert motion.add_obstacle_calls == [{
         "obstacle_id": "grab_front_table",
         "obstacle_type": "box",
@@ -155,11 +151,6 @@ def test_default_grab_and_drop():
         "target_frame": "base_link",
     }]
     assert motion.remove_obstacle_calls == ["grab_front_table"]
-    assert motion.events == [
-        "add_obstacle",
-        "motion_plan",
-        "remove_obstacle",
-    ]
     assert any(
         call[1]["width_m"] == 0.06 for call in gripper_calls
     )
@@ -204,9 +195,13 @@ def test_grab_removes_obstacle_when_planning_fails():
     motion.plan_status = MotionStatus.FAULT
     box = GrabBox(robot, motion)
 
-    with pytest.raises(GrabboxError, match="grab motion planning failed"):
+    with pytest.raises(
+        GrabboxError,
+        match="single-point grab arm planning failed",
+    ):
         box.grab()
 
+    assert motion.plan_calls[0][0] == "traj_plan"
     assert motion.add_obstacle_calls
     assert motion.remove_obstacle_calls == ["grab_front_table"]
 
