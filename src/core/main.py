@@ -346,6 +346,7 @@ class DeliveryStateMachine:
     def _grab(self) -> None:
         self.route.check_stationary()
         self.grabber.grab()
+        self.grabber.lift()
         self.voice.play(PICKED)
         self._transition(
             DeliveryState.LEAVING_TABLE,

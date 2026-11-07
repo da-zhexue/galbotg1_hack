@@ -7,6 +7,9 @@ LEG_DEFAULT_POSITION = [0.5, 1.5, 1.0, 0.0, 0.0]
 # [0.1, 0.7, 0.5, 0, 0] stance while keeping base-frame x/pitch unchanged.
 # The smallest joint-limit margin is 0.172 rad.
 LEG_GRAB_POSITION = [0.172021999, 0.841768006, 0.569746007, 0.0, 0.0]
+# IK solution that raises the body another 0.05 m after the gripper closes,
+# with unchanged base-frame x/pitch and at least 0.247 rad of margin.
+LEG_GRAB_LIFT_POSITION = [0.246910988, 0.991163202, 0.644252215, 0.0, 0.0]
 LEG_DROP_POSITION = [0.0, 0.0, 0.3, 0.0, 0.0]
 
 HEAD_DEFAULT_POSITION = [0.0, 0.0]

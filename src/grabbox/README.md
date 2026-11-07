@@ -35,7 +35,7 @@ finally:
     robot.destroy()
 ```
 
-四个状态函数：
+状态函数：
 
 - `default()`：默认抬升站姿、头部归中、双臂末端比原 home 姿态抬高
   `0.30 m`、夹爪全开 `0.12 m`；左右臂通过 `GalbotMotion.traj_plan()`
@@ -45,6 +45,8 @@ finally:
   协调规划到 Grab 目标，双手 TCP 间距约 `0.21 m`，夹爪半开
   `0.06 m`；当前目标相对上一版沿机体前方前移 `0.20 m`，腿部站姿
   同时抬高 `head_base_link` 约 `0.05 m`，双手 TCP 随身体一起抬高
+- `lift()`：夹取完成后保持双臂关节角不变，将腿部从 Grab 站姿再抬高
+  `0.05 m`，把快递提离桌面
 - `drop()`：不调用 Grab；确认双手 TCP 和身体高度处于 Grab 目标容差内后，
   从当前 Grab 目标出发，沿 21 个同步路点下降到离地约 `0.08 m`，
   下放终点位置不变
@@ -86,6 +88,7 @@ source /home/lin/galbot/sdk/galbot_sdk/linux-x86_64-gcc940/setup.sh
 
 python -m grabbox.real_test --state default
 python -m grabbox.real_test --state grab
+python -m grabbox.real_test --state lift
 python -m grabbox.real_test --state drop
 ```
 

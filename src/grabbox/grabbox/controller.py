@@ -20,6 +20,7 @@ from .poses import (
     LEFT_ARM_GRAB_POSITION,
     LEFT_GRAB_TCP_POSITION_M,
     LEG_DEFAULT_POSITION,
+    LEG_GRAB_LIFT_POSITION,
     LEG_GRAB_POSITION,
     LEG_DROP_POSITION,
     RIGHT_ARM_DEFAULT_POSITION,
@@ -48,7 +49,7 @@ class GrabboxError(RuntimeError):
 
 
 class GrabBox:
-    """Control default, grab, and drop states through an initialized SDK robot."""
+    """Control default, grab, lift, and drop states on an SDK robot."""
 
     def __init__(
         self,
@@ -287,6 +288,10 @@ class GrabBox:
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
         self._set_joints(HEAD_JOINT_NAMES, HEAD_DEFAULT_POSITION)
         self._plan_grab_with_obstacle()
+
+    def lift(self) -> None:
+        """Raise the body 0.05 m from the grab stance to lift the box."""
+        self._set_joints(LEG_JOINT_NAMES, LEG_GRAB_LIFT_POSITION)
 
     def _build_drop_trajectory(self) -> gm.Trajectory:
         trajectory = gm.Trajectory()
