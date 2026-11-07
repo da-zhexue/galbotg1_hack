@@ -275,7 +275,7 @@ class GrabBox:
                 )
 
     def default(self) -> None:
-        """Move to the raised-body, arms-down, fully-open default state."""
+        """Move to the raised-body, raised-TCP, fully-open default state."""
         self._set_default_legs()
         self._set_joints(HEAD_JOINT_NAMES, HEAD_DEFAULT_POSITION)
         self._plan_default_arms()

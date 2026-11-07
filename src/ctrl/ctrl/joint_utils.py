@@ -62,24 +62,28 @@ COMPARABLE_JOINT_NAMES = (
     + (LEFT_GRIPPER_JOINT_NAME, RIGHT_GRIPPER_JOINT_NAME)
 )
 
-LEG_GRAB_POSITION = [0.1, 0.7, 0.5, 0.0, 0.0]
+# Keep in sync with grabbox LEG_GRAB_POSITION: the grab stance is 0.05 m
+# higher than the previous [0.1, 0.7, 0.5, 0, 0] pose.
+LEG_GRAB_POSITION = [0.172021999, 0.841768006, 0.569746007, 0.0, 0.0]
+# Keep in sync with grabbox LEFT/RIGHT_ARM_GRAB_POSITION: the TCPs are
+# 0.20 m forward of the previous grab target.
 RIGHT_ARM_GRAB_POSITION = [
-    -1.145954296,
-    1.275988480,
-    -0.120950307,
-    2.283376295,
-    1.340777772,
-    0.757238899,
-    0.686048081,
+    -0.722342649,
+    1.438776040,
+    0.045585020,
+    1.720401435,
+    1.632507571,
+    0.574618781,
+    0.510511557,
 ]
 LEFT_ARM_GRAB_POSITION = [
-    1.146107043,
-    -1.276173657,
-    0.120885014,
-    -2.283295273,
-    -1.340786409,
-    -0.757223536,
-    -0.685717388,
+    0.722342649,
+    -1.438776040,
+    -0.045585020,
+    -1.720401435,
+    -1.632507571,
+    -0.574618781,
+    -0.510511557,
 ]
 
 DROP_OVER_TCP_SPACING_M = 0.30

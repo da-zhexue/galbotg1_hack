@@ -20,6 +20,14 @@ for import_dir in (SRC_DIR, SRC_DIR / "grabbox"):
 from galbot_sdk.g1 import GalbotNavigation, GalbotRobot
 from grabbox import GrabBox
 from nav.g1_route import G1Route, G1RouteError, check_numpy_available
+from voice.g1_voice import (
+    ARRIVING,
+    DELIVERED,
+    G1Voice,
+    ORDER_SUCCESS,
+    PICKED,
+    PICKUP_ANNOUNCEMENT,
+)
 
 
 class DeliveryError(RuntimeError):
@@ -115,6 +123,7 @@ class DeliveryStateMachine:
         robot: GalbotRobot,
         route: G1Route,
         grabber: GrabBox,
+        voice: G1Voice,
         *,
         scan_codes: Sequence[str] | None = None,
         log: Callable[[str], None] = print,
@@ -122,6 +131,7 @@ class DeliveryStateMachine:
         self.robot = robot
         self.route = route
         self.grabber = grabber
+        self.voice = voice
         self.scan_codes = (
             tuple(scan_codes) if scan_codes is not None else None
         )
@@ -228,6 +238,7 @@ class DeliveryStateMachine:
     def _announce_command(self) -> None:
         command = self._command()
         self._speak(f"收到指令，前往取件{command.pickup_code}")
+        self.voice.play(PICKUP_ANNOUNCEMENT)
         self._transition(
             DeliveryState.APPROACHING_TABLE,
             "command announced",
@@ -281,6 +292,8 @@ class DeliveryStateMachine:
     ) -> None:
         code = self._read_pickup_code(position)
         self.last_scan_code = code
+        if position == self.SCAN_POSITIONS:
+            self.voice.play(ORDER_SUCCESS)
         command = self._command()
 
         if code == command.pickup_code:
@@ -323,7 +336,7 @@ class DeliveryStateMachine:
         return command.pickup_code
 
     def _speak(self, text: str) -> None:
-        # TODO: 调用机器人语音播报接口。
+        # Dynamic text is logged only; fixed prompts go through G1Voice.
         print(f"[voice] {text}", flush=True)
 
     def _check_path_clear(self) -> None:
@@ -333,6 +346,7 @@ class DeliveryStateMachine:
     def _grab(self) -> None:
         self.route.check_stationary()
         self.grabber.grab()
+        self.voice.play(PICKED)
         self._transition(
             DeliveryState.LEAVING_TABLE,
             "box grasped",
@@ -349,8 +363,9 @@ class DeliveryStateMachine:
     def _navigate_to_door(self) -> None:
         self._prepare_motion()
         self._speak(f"正在前往{self._command().destination}")
-        # self.route.forward_100cm()
+        self.route.forward_200cm()
         self.route.navigate_to_door()
+        self.voice.play(ARRIVING)
         self._transition(
             DeliveryState.DROPPING,
             "arrived at destination",
@@ -359,6 +374,7 @@ class DeliveryStateMachine:
     def _drop(self) -> None:
         self.route.check_stationary()
         self.grabber.drop()
+        self.voice.play(DELIVERED)
         self._transition(
             DeliveryState.RESETTING,
             "box released",
@@ -451,6 +467,15 @@ def _confirm_safety() -> bool:
     print("  4. Keep the emergency stop within reach.")
     answer = input("Type YES to start the delivery flow: ").strip()
     return answer == "YES"
+
+
+def _stop_voice(voice: G1Voice | None) -> None:
+    if voice is None:
+        return
+    try:
+        voice.stop()
+    except Exception as error:
+        print(f"[core] voice stop error: {error}")
 
 
 def _stop_navigation(navigation: GalbotNavigation | None) -> None:
@@ -549,8 +574,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("[core] GalbotNavigation initialized")
 
     route: G1Route | None = None
+    voice: G1Voice | None = None
     exit_code = 0
     try:
+        voice = G1Voice(robot)
         route = G1Route(
             robot,
             timeout_s=args.timeout_s,
@@ -567,6 +594,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             robot,
             route,
             grabber,
+            voice,
             scan_codes=args.scan_codes,
         )
         final_state = machine.start(command)
@@ -585,6 +613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[core] delivery flow failed: {error}")
         exit_code = 1
     finally:
+        _stop_voice(voice)
         _stop_navigation(navigation)
         _stop_motion(robot, route)
         _shutdown_robot(robot)

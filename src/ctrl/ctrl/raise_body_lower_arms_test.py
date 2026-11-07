@@ -1,4 +1,4 @@
-"""Publish a safe pose test: lower both arms, then raise the body."""
+"""Publish a safe pose test: set the default arms, then raise the body."""
 
 from __future__ import annotations
 
@@ -26,23 +26,25 @@ from .joint_utils import (
 )
 
 HEAD_NEUTRAL_POSITION = [0.0, 0.0]
+# Keep in sync with grabbox LEFT/RIGHT_ARM_DEFAULT_POSITION: the TCP is
+# 0.30 m above the original home pose.
 LEFT_ARM_DOWN_POSITION = [
-    2.0,
-    -1.5,
-    -0.6,
-    -1.7,
-    0.0,
-    -0.8,
-    0.0,
+    2.472939087,
+    -1.508062789,
+    -0.800806878,
+    -2.467993878,
+    -0.240819441,
+    -0.725844641,
+    0.158295733,
 ]
 RIGHT_ARM_DOWN_POSITION = [
-    -2.0,
-    1.5,
-    0.6,
-    1.7,
-    0.0,
-    0.8,
-    0.0,
+    -2.472939087,
+    1.508062789,
+    0.800806878,
+    2.467993878,
+    0.240819441,
+    0.725844641,
+    -0.158295733,
 ]
 
 
@@ -145,7 +147,9 @@ class RaiseBodyLowerArmsTest(Node):
         while time.monotonic() < end_time:
             rclpy.spin_once(self, timeout_sec=0.05)
 
-        self.get_logger().warning("Step 1/2: lowering both arms")
+        self.get_logger().warning(
+            "Step 1/2: moving both arms to the default pose"
+        )
         gripper = self._gripper_message(
             GRIPPER_FULLY_OPEN_WIDTH_M
         )

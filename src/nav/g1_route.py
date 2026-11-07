@@ -36,7 +36,7 @@ class G1Route:
     LINEAR_STATIONARY_TOLERANCE_MPS = 0.03
     ANGULAR_STATIONARY_TOLERANCE_RAD_S = 0.05
     TOTAL_PATH_LENGTH_M = 3.8
-    NAVIGATION_READY_TIMEOUT_S = 5.0
+    NAVIGATION_READY_TIMEOUT_S = 30.0
     NAV_GOAL_X_M = 1.0
     NAV_MIN_DISPLACEMENT_M = 0.5
 
@@ -153,10 +153,19 @@ class G1Route:
             return False
 
         deadline = time.monotonic() + self.NAVIGATION_READY_TIMEOUT_S
+        last_report = 0.0
         while not self.navigation.is_localized():
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            if now >= deadline:
                 return False
+            if now - last_report >= 1.0:
+                print(
+                    "[g1-route] waiting for localization: "
+                    f"state={self._navigation_state()}"
+                )
+                last_report = now
             self.sleep(0.5)
+        print("[g1-route] navigation localized")
         return True
 
     def navigate_to_door(self) -> None:
@@ -189,7 +198,7 @@ class G1Route:
 
         odom_before = self.robot.get_odom()
         success, status = self.navigation.navigate_to_goal_v2(
-            [self.NAV_GOAL_X_M, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            [2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0],
             [0.2, 0.2, 0.3],
             pose_frame="base_link",
             enable_collision_check=True,
@@ -261,10 +270,10 @@ class G1Route:
         print(self.robot.get_odom())
 
     def forward_80cm(self) -> None:
-        self._execute_action("Forward 80cm", 0.80, 0.00, 0.0, 6.0)
+        self._execute_action("Forward 80cm", 0.90, 0.00, 0.0, 6.0)
 
     def right_50cm_1(self) -> None:
-        self._execute_action("Right 50cm - 1", 0.00, -0.50, 0.0, 5.0)
+        self._execute_action("Right 50cm - 1", 0.00, 0.00, 0.0, 1.0)
 
     def right_50cm_2(self) -> None:
         self._execute_action("Right 50cm - 2", 0.00, -0.50, 0.0, 5.0)
@@ -273,10 +282,10 @@ class G1Route:
         self._execute_action("Right 50cm - 3", 0.00, -0.50, 0.0, 5.0)
 
     def right_50cm_4(self) -> None:
-        self._execute_action("Right 50cm - 4", 0.00, -0.50, 0.0, 5.0)
+        self._execute_action("Right 50cm - 4", 0.00, -1.00, 0.0, 5.0)
 
-    def forward_100cm(self) -> None:
-        self._execute_action("Forward 100cm", 1.00, 0.00, 0.0, 8.0)
+    def forward_200cm(self) -> None:
+        self._execute_action("Forward 200cm", 2.00, 0.00, 0.0, 8.0)
 
     def stop_base(self) -> None:
         """Request a base stop and verify the SDK result."""

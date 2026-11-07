@@ -30,7 +30,9 @@ ros2 launch ctrl ctrl.launch.py mode:=real allow_motion:=false
 ros2 launch ctrl ctrl.launch.py mode:=real allow_motion:=true
 
 # 回到标准位姿
-ros2 run ctrl raise_body_lower_arms_test
+ros2 run ctrl raise_body_lower_arms_test --ros-args -p confirm:=true
+ros2 run ctrl grab --ros-args -p confirm:=true
+ros2 run ctrl drop --ros-args -p confirm:=true
 ```
 
 仅实机，无ROS版（仅把src/grabbox放入机器人内电脑即可）
@@ -46,5 +48,5 @@ python -m grabbox.real_test --state drop
 
 
 ```
-参考现有grabbox和nav封装，将语音与扫码模块修改为一个类由main.py调用，并完成现在main.py中的TODO部分，_speak改为每个不同的话调用不同函数
+参考现有grabbox和nav封装，将语音模块修改为一个类由main.py调用，在移动前、扫描完第三个取件码后（扫描函数还留TODO）、夹取快递后、到达导航目标点、放下快递后分别播放02～06音频
 ```

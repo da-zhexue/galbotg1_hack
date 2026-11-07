@@ -95,9 +95,11 @@ def test_drop_trajectory_metadata():
     assert LEG_DROP_POSITION == [0.0, 0.0, 0.3, 0.0, 0.0]
     assert math.isclose(GRAB_END_EFFECTOR_DISTANCE_M, 0.19)
     assert math.isclose(END_EFFECTOR_ROLL_RAD, math.pi, abs_tol=1e-6)
-    assert math.isclose(FINAL_END_EFFECTOR_HEIGHT_M, 0.1)
-    assert math.isclose(FINAL_FORWARD_OFFSET_M, 0.20)
+    assert math.isclose(FINAL_END_EFFECTOR_HEIGHT_M, 0.072)
+    assert math.isclose(FINAL_FORWARD_OFFSET_M, 0.052)
     assert len(LEFT_ARM_DROP_WAYPOINTS) == 21
     assert len(RIGHT_ARM_DROP_WAYPOINTS) == 21
+    assert LEFT_ARM_DROP_WAYPOINTS[0] == LEFT_ARM_GRAB_POSITION
+    assert RIGHT_ARM_DROP_WAYPOINTS[0] == RIGHT_ARM_GRAB_POSITION
     assert all(len(point) == 7 for point in LEFT_ARM_DROP_WAYPOINTS)
     assert all(len(point) == 7 for point in RIGHT_ARM_DROP_WAYPOINTS)

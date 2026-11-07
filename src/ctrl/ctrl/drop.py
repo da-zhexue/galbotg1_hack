@@ -1,4 +1,4 @@
-"""Lower the body, then move both gripper TCPs to 10 cm above ground."""
+"""Move both gripper TCPs along the drop path, then lower the body."""
 
 from __future__ import annotations
 
@@ -150,7 +150,15 @@ class DropNode(Node):
         self._wait_for_discovery()
 
         self.get_logger().warning(
-            "Step 1/3: lowering legs to [0, 0, 0.3, 0, 0]"
+            "Step 1/3: moving both arm TCPs along the drop trajectory "
+            f"(forward {FINAL_FORWARD_OFFSET_M:.3f} m, spacing "
+            f"{GRAB_END_EFFECTOR_DISTANCE_M:.2f} m, end-effector roll "
+            f"{END_EFFECTOR_ROLL_RAD:.3f} rad)"
+        )
+        self._publish_arm_trajectory()
+
+        self.get_logger().warning(
+            "Step 2/3: lowering legs to [0, 0, 0.3, 0, 0]"
         )
         self._publish_leg()
         self._spin_for(
@@ -158,22 +166,13 @@ class DropNode(Node):
         )
 
         self.get_logger().warning(
-            "Step 2/3: keeping grippers half closed"
+            "Step 3/3: keeping grippers half closed"
         )
         self._publish_gripper()
-
-        self.get_logger().warning(
-            "Step 3/3: lowering both arm TCPs to 0.10 m "
-            f"while moving forward {FINAL_FORWARD_OFFSET_M:.2f} m "
-            f"and preserving {GRAB_END_EFFECTOR_DISTANCE_M:.6f} m spacing "
-            f"(end-effector roll {END_EFFECTOR_ROLL_RAD:.3f} rad)"
-        )
-        self._publish_arm_trajectory()
         self._spin_for(float(self.get_parameter("final_hold_s").value))
         self.get_logger().info(
             "Drop finished at TCP height "
-            f"{FINAL_END_EFFECTOR_HEIGHT_M:.2f} m, forward "
-            f"{FINAL_FORWARD_OFFSET_M:.2f} m"
+            f"{FINAL_END_EFFECTOR_HEIGHT_M:.3f} m above base_link"
         )
 
 

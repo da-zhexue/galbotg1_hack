@@ -24,7 +24,7 @@ REAL_TEST_ACTIONS = (
     "right-50cm-2",
     "right-50cm-3",
     "right-50cm-4",
-    "forward-100cm",
+    "forward-200cm",
     "navigate-door-100cm",
 )
 
@@ -88,7 +88,7 @@ def _actions(
         "right-50cm-2": ("Right 50cm - 2", route.right_50cm_2),
         "right-50cm-3": ("Right 50cm - 3", route.right_50cm_3),
         "right-50cm-4": ("Right 50cm - 4", route.right_50cm_4),
-        "forward-100cm": ("Forward 100cm", route.forward_100cm),
+        "forward-200cm": ("Forward 200cm", route.forward_200cm),
         "navigate-door-100cm": (
             "Navigate Door 100cm",
             route.navigate_to_door,
