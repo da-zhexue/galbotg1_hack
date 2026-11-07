@@ -1,190 +1,158 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Sequential chassis route for a Galbot G1."""
+
+from __future__ import annotations
 
 import time
-from galbot_sdk.g1 import GalbotRobot, ControlStatus
+from collections.abc import Callable
+
+from galbot_sdk.g1 import ControlStatus, GalbotRobot
 
 
-# ==========================================
-# Galbot G1 Sequential Movement
-# ==========================================
-
-robot = GalbotRobot()
-initialized = False
-
-# Each step: name, x, y, yaw, interpolation_time
-# Right movement uses negative Y in robot coordinates.
-
-ROUTE = [
-    ("Forward 80cm",  0.80,  0.00, 0.0, 6.0),
-    ("Right 50cm - 1", 0.00, -0.50, 0.0, 5.0),
-    ("Right 50cm - 2", 0.00, -0.50, 0.0, 5.0),
-    ("Right 50cm - 3", 0.00, -0.50, 0.0, 5.0),
-    ("Right 50cm - 4", 0.00, -0.50, 0.0, 5.0),
-    ("Forward 100cm", 1.00,  0.00, 0.0, 8.0),
-]
-
-TIMEOUT = 25.0
+class G1RouteError(RuntimeError):
+    """Raised when a chassis command does not complete successfully."""
 
 
-def check_stationary():
-    velocity = robot.get_base_velocity()
+class G1Route:
+    """Run the predefined chassis route through an initialized SDK robot."""
 
-    linear = velocity["linear_velocity"]
-    angular = velocity["angular_velocity"]
+    CONTROLLER_NAME = "chassis_pose_ctrl"
+    CONTROLLER_GROUP = "chassis"
+    RELATIVE_FRAME = "rel(0)"
+    ODOM_FRAME = "odom"
+    LINEAR_STATIONARY_TOLERANCE_MPS = 0.03
+    ANGULAR_STATIONARY_TOLERANCE_RAD_S = 0.05
+    TOTAL_PATH_LENGTH_M = 3.8
 
-    if max(abs(float(v)) for v in linear) > 0.03:
-        raise RuntimeError("Base is not stationary")
+    def __init__(
+        self,
+        robot: GalbotRobot,
+        *,
+        timeout_s: float = 25.0,
+        step_settle_s: float = 0.5,
+        controller_settle_s: float = 1.0,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if robot is None:
+            raise ValueError("robot must be a GalbotRobot instance")
+        self.robot = robot
+        self.timeout_s = float(timeout_s)
+        self.step_settle_s = float(step_settle_s)
+        self.controller_settle_s = float(controller_settle_s)
+        self.sleep = sleep
+        if self.timeout_s <= 0.0:
+            raise ValueError("timeout_s must be positive")
+        if self.step_settle_s < 0.0:
+            raise ValueError("step_settle_s must be non-negative")
+        if self.controller_settle_s < 0.0:
+            raise ValueError("controller_settle_s must be non-negative")
 
-    if max(abs(float(v)) for v in angular) > 0.05:
-        raise RuntimeError("Base is rotating")
+    @staticmethod
+    def _require_success(
+        operation: str,
+        status: ControlStatus,
+    ) -> None:
+        if status != ControlStatus.SUCCESS:
+            raise G1RouteError(f"{operation} failed: {status}")
 
+    def check_stationary(self) -> None:
+        """Raise when the chassis is translating or rotating."""
+        velocity = self.robot.get_base_velocity()
+        linear = velocity["linear_velocity"]
+        angular = velocity["angular_velocity"]
 
-def execute_step(index, step):
-    name, x, y, yaw, duration = step
+        if (
+            max(abs(float(value)) for value in linear)
+            > self.LINEAR_STATIONARY_TOLERANCE_MPS
+        ):
+            raise G1RouteError("Base is not stationary")
 
-    print("\n================================")
-    print("Step {}/{}".format(index, len(ROUTE)))
-    print("Action:", name)
-    print("X:", x, "m")
-    print("Y:", y, "m")
-    print("Yaw:", yaw, "rad")
-    print("Duration:", duration, "s")
-    print("================================")
+        if (
+            max(abs(float(value)) for value in angular)
+            > self.ANGULAR_STATIONARY_TOLERANCE_RAD_S
+        ):
+            raise G1RouteError("Base is rotating")
 
-    status = robot.set_base_pose(
-        x,
-        y,
-        yaw,
-        "rel(0)",
-        "odom",
-        duration,
-        True,
-        TIMEOUT
-    )
-
-    print("Motion status:", status)
-
-    if status != ControlStatus.SUCCESS:
-        raise RuntimeError(
-            "Step {} failed: {}".format(index, status)
+    def ensure_pose_controller(self) -> None:
+        """Switch the chassis to the pose controller when needed."""
+        controller = self.robot.get_active_controller(
+            self.CONTROLLER_GROUP
         )
-
-    print("Step completed:", name)
-
-    time.sleep(0.5)
-
-    print("Current odometry:")
-    print(robot.get_odom())
-
-
-def main():
-    global initialized
-
-    try:
-        print("Initializing Galbot G1...")
-
-        initialized = bool(robot.init())
-
-        if not initialized:
-            raise RuntimeError("G1 initialization failed")
-
-        print("G1 initialized successfully!")
-
-        time.sleep(1)
-
-        # Check controller
-        controller = robot.get_active_controller("chassis")
         print("Current controller:", controller)
 
-        if controller != "chassis_pose_ctrl":
-
-            print("Switching to chassis_pose_ctrl...")
-
-            status = robot.switch_controller(
-                "chassis_pose_ctrl"
-            )
-
-            print("Switch status:", status)
-
-            if status != ControlStatus.SUCCESS:
-                raise RuntimeError("Controller switch failed")
-
-            time.sleep(1)
-
-            controller = robot.get_active_controller("chassis")
-
-            if controller != "chassis_pose_ctrl":
-                raise RuntimeError("Pose controller not confirmed")
-
-        print("Pose controller ready!")
-
-        # Check initial state
-        check_stationary()
-
-        print("\nInitial odometry:")
-        print(robot.get_odom())
-
-        print("\n========== ROUTE ==========")
-
-        for i, step in enumerate(ROUTE, 1):
-            print("{}. {}".format(i, step[0]))
-
-        print("\nTotal path length: 3.8 m")
-        print("===========================")
-
-        confirm = input(
-            "\nConfirm 3.8m route is clear. Type GO: "
-        ).strip()
-
-        if confirm != "GO":
-            print("Route cancelled")
+        if controller == self.CONTROLLER_NAME:
+            print("Pose controller ready!")
             return
 
-        # Execute route sequentially
-        for i, step in enumerate(ROUTE, 1):
+        print(f"Switching to {self.CONTROLLER_NAME}...")
+        status = self.robot.switch_controller(self.CONTROLLER_NAME)
+        print("Switch status:", status)
+        self._require_success("switch_controller", status)
 
-            check_stationary()
+        self.sleep(self.controller_settle_s)
+        controller = self.robot.get_active_controller(
+            self.CONTROLLER_GROUP
+        )
+        if controller != self.CONTROLLER_NAME:
+            raise G1RouteError("Pose controller not confirmed")
+        print("Pose controller ready!")
 
-            execute_step(i, step)
-
+    def _execute_action(
+        self,
+        name: str,
+        x: float,
+        y: float,
+        yaw: float,
+        duration_s: float,
+    ) -> None:
         print("\n================================")
-        print("ALL SIX MOVEMENTS COMPLETED!")
-        print("G1 route execution finished.")
+        print("Action:", name)
+        print("X:", x, "m")
+        print("Y:", y, "m")
+        print("Yaw:", yaw, "rad")
+        print("Duration:", duration_s, "s")
         print("================================")
 
-    except KeyboardInterrupt:
-        print("\nKeyboard interrupt received")
+        status = self.robot.set_base_pose(
+            x,
+            y,
+            yaw,
+            self.RELATIVE_FRAME,
+            self.ODOM_FRAME,
+            duration_s,
+            True,
+            self.timeout_s,
+        )
+        print("Motion status:", status)
+        self._require_success(f"set_base_pose({name})", status)
+        print("Action completed:", name)
 
-    except Exception as e:
-        print("\nERROR:", repr(e))
-        print("Remaining route cancelled")
+        self.sleep(self.step_settle_s)
+        print("Current odometry:")
+        print(self.robot.get_odom())
 
-    finally:
-        if initialized:
+    def forward_80cm(self) -> None:
+        self._execute_action("Forward 80cm", 0.80, 0.00, 0.0, 6.0)
 
-            try:
-                print("\nStopping base...")
-                status = robot.stop_base()
-                print("Stop status:", status)
+    def right_50cm_1(self) -> None:
+        self._execute_action("Right 50cm - 1", 0.00, -0.50, 0.0, 5.0)
 
-                if status != ControlStatus.SUCCESS:
-                    print("WARNING: Check physical emergency stop!")
+    def right_50cm_2(self) -> None:
+        self._execute_action("Right 50cm - 2", 0.00, -0.50, 0.0, 5.0)
 
-            except Exception as e:
-                print("Stop error:", repr(e))
+    def right_50cm_3(self) -> None:
+        self._execute_action("Right 50cm - 3", 0.00, -0.50, 0.0, 5.0)
 
-            try:
-                robot.request_shutdown()
-                robot.wait_for_shutdown()
-                robot.destroy()
+    def right_50cm_4(self) -> None:
+        self._execute_action("Right 50cm - 4", 0.00, -0.50, 0.0, 5.0)
 
-            except Exception as e:
-                print("SDK shutdown error:", repr(e))
+    def forward_100cm(self) -> None:
+        self._execute_action("Forward 100cm", 1.00, 0.00, 0.0, 8.0)
 
-        print("Program finished")
-
-
-if __name__ == "__main__":
-    main()
+    def stop_base(self) -> None:
+        """Request a base stop and verify the SDK result."""
+        print("\nStopping base...")
+        status = self.robot.stop_base()
+        print("Stop status:", status)
+        self._require_success("stop_base", status)

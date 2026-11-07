@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Interactive real-robot test for the Galbot G1 chassis route."""
+
+from __future__ import annotations
+
+import argparse
+import time
+from collections.abc import Callable, Sequence
+
+from galbot_sdk.g1 import GalbotRobot
+
+if __package__:
+    from .g1_route import G1Route, G1RouteError
+else:
+    from g1_route import G1Route, G1RouteError
+
+
+REAL_TEST_ACTIONS = (
+    "all",
+    "forward-80cm",
+    "right-50cm-1",
+    "right-50cm-2",
+    "right-50cm-3",
+    "right-50cm-4",
+    "forward-100cm",
+)
+
+
+def _parse_args(
+    argv: Sequence[str] | None = None,
+) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run G1 chassis route actions on a real robot."
+    )
+    parser.add_argument(
+        "--action",
+        choices=REAL_TEST_ACTIONS,
+        default="all",
+        help="Action to test. 'all' runs the complete route.",
+    )
+    parser.add_argument(
+        "--timeout-s",
+        type=float,
+        default=25.0,
+        help="Timeout for each chassis pose command.",
+    )
+    parser.add_argument(
+        "--settle-s",
+        type=float,
+        default=0.5,
+        help="Pause after each action in seconds.",
+    )
+    parser.add_argument(
+        "--controller-settle-s",
+        type=float,
+        default=1.0,
+        help="Pause after switching the chassis controller.",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive safety confirmation.",
+    )
+    return parser.parse_args(argv)
+
+
+def _confirm_safety() -> bool:
+    print("WARNING:")
+    print("  1. Release the emergency stop button.")
+    print("  2. Verify the robot is in WORKING_MODE.")
+    print("  3. Clear people and obstacles within 2 m.")
+    print("  4. Keep the emergency stop within reach.")
+    answer = input("Type YES to start the real-robot test: ").strip()
+    return answer == "YES"
+
+
+def _actions(
+    route: G1Route,
+) -> dict[str, tuple[str, Callable[[], None]]]:
+    return {
+        "forward-80cm": ("Forward 80cm", route.forward_80cm),
+        "right-50cm-1": ("Right 50cm - 1", route.right_50cm_1),
+        "right-50cm-2": ("Right 50cm - 2", route.right_50cm_2),
+        "right-50cm-3": ("Right 50cm - 3", route.right_50cm_3),
+        "right-50cm-4": ("Right 50cm - 4", route.right_50cm_4),
+        "forward-100cm": ("Forward 100cm", route.forward_100cm),
+    }
+
+
+def _run_test_actions(route: G1Route, selection: str) -> None:
+    actions = _actions(route)
+    selected = list(actions.items())
+    if selection != "all":
+        selected = [(selection, actions[selection])]
+
+    for index, (action_id, (name, action)) in enumerate(
+        selected,
+        start=1,
+    ):
+        route.check_stationary()
+        print(
+            f"\n[g1-route] action {index}/{len(selected)}: "
+            f"{action_id} ({name})"
+        )
+        action()
+        print(f"[g1-route] action completed: {action_id}")
+
+
+def _stop_robot(robot: GalbotRobot, route: G1Route | None) -> None:
+    if route is not None:
+        try:
+            route.stop_base()
+            return
+        except Exception as error:
+            print(f"[g1-route] route stop error: {error}")
+
+    try:
+        robot.stop_base()
+    except Exception as error:
+        print(f"[g1-route] SDK stop error: {error}")
+
+
+def _shutdown_robot(robot: GalbotRobot) -> None:
+    try:
+        robot.request_shutdown()
+    except Exception as error:
+        print(f"[g1-route] SDK shutdown request error: {error}")
+
+    try:
+        robot.wait_for_shutdown()
+    except Exception as error:
+        print(f"[g1-route] SDK shutdown wait error: {error}")
+
+    try:
+        robot.destroy()
+    except Exception as error:
+        print(f"[g1-route] SDK destroy error: {error}")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if not args.yes and not _confirm_safety():
+        print("[g1-route] test cancelled")
+        return 2
+
+    robot = GalbotRobot()
+    print("[g1-route] initializing Galbot G1")
+    if not robot.init():
+        print("[g1-route] GalbotRobot initialization failed")
+        robot.destroy()
+        return 1
+    print("[g1-route] GalbotRobot initialized")
+
+    route: G1Route | None = None
+    exit_code = 0
+    try:
+        route = G1Route(
+            robot,
+            timeout_s=args.timeout_s,
+            step_settle_s=args.settle_s,
+            controller_settle_s=args.controller_settle_s,
+        )
+        time.sleep(1.0)
+        route.ensure_pose_controller()
+        route.check_stationary()
+
+        print("[g1-route] initial odometry:")
+        print(robot.get_odom())
+
+        _run_test_actions(route, args.action)
+        print("\n[g1-route] real-robot test completed")
+    except KeyboardInterrupt:
+        print("\n[g1-route] keyboard interrupt received")
+        exit_code = 130
+    except Exception as error:
+        print(f"[g1-route] test failed: {error}")
+        exit_code = 1
+    finally:
+        _stop_robot(robot, route)
+        _shutdown_robot(robot)
+
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
