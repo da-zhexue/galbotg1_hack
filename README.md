@@ -33,7 +33,7 @@ ros2 launch ctrl ctrl.launch.py mode:=real allow_motion:=true
 ros2 run ctrl raise_body_lower_arms_test
 ```
 
-仅实机，无ROS版
+仅实机，无ROS版（仅把src/grabbox放入机器人内电脑即可）
 ```bash
 source /home/lin/galbot/sdk/galbot_sdk/linux-x86_64-gcc940/setup.sh
 

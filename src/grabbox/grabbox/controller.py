@@ -38,6 +38,10 @@ RIGHT_ARM_JOINT_NAMES = tuple(
     f"right_arm_joint{index}" for index in range(1, 8)
 )
 
+GRAB_OBSTACLE_ID = "grab_front_table"
+GRAB_OBSTACLE_POSE = (0.5, 0.0, 0.375, 0.0, 0.0, 0.0, 1.0)
+GRAB_OBSTACLE_SCALE = (0.6, 2.0, 0.75)
+
 
 class GrabboxError(RuntimeError):
     """Raised when an SDK command does not complete successfully."""
@@ -115,15 +119,6 @@ class GrabBox:
     def _set_grab_legs(self) -> None:
         self._set_joints(LEG_JOINT_NAMES, LEG_GRAB_POSITION)
 
-    def _set_grab_arms(self) -> None:
-        names = HEAD_JOINT_NAMES + LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES
-        positions = (
-            HEAD_DEFAULT_POSITION
-            + LEFT_ARM_GRAB_POSITION
-            + RIGHT_ARM_GRAB_POSITION
-        )
-        self._set_joints(names, positions)
-
     def _set_drop_over_arms(self) -> None:
         names = LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES
         positions = (
@@ -131,6 +126,68 @@ class GrabBox:
             + RIGHT_ARM_DROP_OVER_POSITION
         )
         self._set_joints(names, positions)
+
+    def _plan_grab_pose(self) -> None:
+        chains = (
+            ("head", HEAD_DEFAULT_POSITION),
+            ("left_arm", LEFT_ARM_GRAB_POSITION),
+            ("right_arm", RIGHT_ARM_GRAB_POSITION),
+        )
+        targets = []
+        for chain_name, positions in chains:
+            joint_names = list(
+                self.motion.get_chain_joint_names(chain_name)
+            )
+            if len(joint_names) != len(positions):
+                raise GrabboxError(
+                    f"failed to query {chain_name} joint names from "
+                    "GalbotMotion"
+                )
+            target = gm.MotionPlanChainTarget()
+            target.chain_name = chain_name
+            target.mode = gm.MotionPlanTargetMode.kJoint
+            target.joint.chain_name = chain_name
+            target.joint.joint_names = joint_names
+            target.joint.joint_positions = list(positions)
+            targets.append(target)
+
+        params = gm.Parameter()
+        params.set_direct_execute(True)
+        params.set_blocking(True)
+        params.set_timeout(self.planning_timeout_s)
+        params.set_check_collision(True)
+        params.set_enable_env_collision_check(True)
+        params.set_reference_frame("base_link")
+        params.set_actuate("with_chain_only")
+
+        status, _ = self.motion.motion_plan([targets], params)
+        if status != gm.MotionStatus.SUCCESS:
+            status_name = self.motion.status_to_string(status)
+            raise GrabboxError(
+                "grab motion planning failed: "
+                f"{status} ({status_name})"
+            )
+
+    def _plan_grab_with_obstacle(self) -> None:
+        status = self.motion.add_obstacle(
+            obstacle_id=GRAB_OBSTACLE_ID,
+            obstacle_type="box",
+            pose=list(GRAB_OBSTACLE_POSE),
+            scale=list(GRAB_OBSTACLE_SCALE),
+            target_frame="base_link",
+        )
+        if status != gm.MotionStatus.SUCCESS:
+            raise GrabboxError(
+                f"add grab obstacle failed: {status}"
+            )
+        try:
+            self._plan_grab_pose()
+        finally:
+            status = self.motion.remove_obstacle(GRAB_OBSTACLE_ID)
+            if status != gm.MotionStatus.SUCCESS:
+                raise GrabboxError(
+                    f"remove grab obstacle failed: {status}"
+                )
 
     def _read_frame_position(
         self, frame: str
@@ -245,10 +302,10 @@ class GrabBox:
         self._set_gripper(GRIPPER_DEFAULT_WIDTH_M)
 
     def grab(self) -> None:
-        """Move to the raised-body grab state with 21 cm TCP spacing."""
+        """Plan to the raised-body grab state around a temporary table."""
         self._set_grab_legs()
-        self._set_grab_arms()
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
+        self._plan_grab_with_obstacle()
 
     def _build_drop_trajectory(self) -> gm.Trajectory:
         trajectory = gm.Trajectory()
@@ -276,15 +333,16 @@ class GrabBox:
     def drop(self) -> None:
         """Lower the body and follow the synchronized drop path."""
         #self._check_drop_preconditions()
+        status = self.robot.execute_joint_trajectory(
+            self._build_drop_trajectory(),
+            is_blocking=True,
+        )
         self._set_joints(
             LEG_JOINT_NAMES,
             LEG_DROP_POSITION,
             blocking=True,
         )
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
-        status = self.robot.execute_joint_trajectory(
-            self._build_drop_trajectory(),
-            is_blocking=True,
-        )
+
         self._set_drop_over_arms()
         self._require_success("execute_joint_trajectory(drop)", status)
