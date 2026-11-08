@@ -1,4 +1,5 @@
-"""Publish a safe pose test: set the default arms, then raise the body."""
+"""Publish a safe pose test: move the body to the grab stance, then the
+default arms."""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from .joint_utils import (
     GRIPPER_FULLY_OPEN_WIDTH_M,
     HEAD_JOINT_NAMES,
     LEFT_ARM_JOINT_NAMES,
-    LEG_DEFAULT_POSITION,
+    LEG_GRAB_POSITION,
     LEG_JOINT_NAMES,
     RIGHT_ARM_JOINT_NAMES,
     TOPIC_GRIPPER,
@@ -26,25 +27,25 @@ from .joint_utils import (
 )
 
 HEAD_NEUTRAL_POSITION = [0.0, 0.0]
-# Keep in sync with grabbox LEFT/RIGHT_ARM_DEFAULT_POSITION: the TCP is
-# 0.30 m above the original home pose.
-LEFT_ARM_DOWN_POSITION = [
-    2.472939087,
-    -1.508062789,
-    -0.800806878,
-    -2.467993878,
-    -0.240819441,
-    -0.725844641,
-    0.158295733,
+# Keep in sync with grabbox LEFT/RIGHT_ARM_DEFAULT_POSITION: the grab-pose
+# TCP x/z and orientation with the two hands 0.30 m apart.
+LEFT_ARM_DEFAULT_POSITION = [
+    0.753363700,
+    -1.368211572,
+    -0.122525471,
+    -1.756951291,
+    -1.703715810,
+    -0.510638034,
+    -0.492941985,
 ]
-RIGHT_ARM_DOWN_POSITION = [
-    -2.472939087,
-    1.508062789,
-    0.800806878,
-    2.467993878,
-    0.240819441,
-    0.725844641,
-    -0.158295733,
+RIGHT_ARM_DEFAULT_POSITION = [
+    -0.753363700,
+    1.368211572,
+    0.122525471,
+    1.756951291,
+    1.703715810,
+    0.510638034,
+    0.492941985,
 ]
 
 
@@ -148,7 +149,16 @@ class RaiseBodyLowerArmsTest(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
         self.get_logger().warning(
-            "Step 1/2: moving both arms to the default pose"
+            "Step 1/2: moving the body to the grab stance"
+        )
+        leg = self._message(LEG_JOINT_NAMES, LEG_GRAB_POSITION)
+        self._publish_repeated(
+            TOPIC_LEG, leg, repeat_count, repeat_period_s
+        )
+        time.sleep(leg_settle_s)
+
+        self.get_logger().warning(
+            "Step 2/2: moving both arms to the default pose"
         )
         gripper = self._gripper_message(
             GRIPPER_FULLY_OPEN_WIDTH_M
@@ -157,10 +167,10 @@ class RaiseBodyLowerArmsTest(Node):
             HEAD_JOINT_NAMES, HEAD_NEUTRAL_POSITION
         )
         left_arm = self._message(
-            LEFT_ARM_JOINT_NAMES, LEFT_ARM_DOWN_POSITION
+            LEFT_ARM_JOINT_NAMES, LEFT_ARM_DEFAULT_POSITION
         )
         right_arm = self._message(
-            RIGHT_ARM_JOINT_NAMES, RIGHT_ARM_DOWN_POSITION
+            RIGHT_ARM_JOINT_NAMES, RIGHT_ARM_DEFAULT_POSITION
         )
         self._publish_repeated(
             TOPIC_GRIPPER, gripper, repeat_count, repeat_period_s
@@ -175,14 +185,7 @@ class RaiseBodyLowerArmsTest(Node):
             TOPIC_RIGHT_HAND, right_arm, repeat_count, repeat_period_s
         )
         time.sleep(arm_settle_s)
-
-        self.get_logger().warning("Step 2/2: raising the body")
-        leg = self._message(LEG_JOINT_NAMES, LEG_DEFAULT_POSITION)
-        self._publish_repeated(
-            TOPIC_LEG, leg, repeat_count, repeat_period_s
-        )
-        time.sleep(leg_settle_s)
-        self.get_logger().info("Raise-body/lower-arms test finished")
+        self.get_logger().info("Default-pose test finished")
 
 
 def main(args: list[str] | None = None) -> None:

@@ -28,6 +28,7 @@ setup(
             'drop = ctrl.drop:main',
             'drop_over = ctrl.drop_over:main',
             'grab = ctrl.grab:main',
+            'grab2 = ctrl.grab2:main',
             'real_robot_bridge = ctrl.real_robot_bridge:main',
             'rviz_joint_bridge = ctrl.rviz_joint_bridge:main',
             'state_comparator = ctrl.state_comparator:main',

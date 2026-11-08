@@ -25,7 +25,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--state",
-        choices=("all", "default", "grab", "lift", "drop"),
+        choices=("all", "default", "grab", "grab2", "lift", "drop"),
         default="all",
         help="State to test. 'all' runs default, grab, lift, drop.",
     )
@@ -69,6 +69,8 @@ def _run_state(
         box.default()
     elif state == "grab":
         box.grab()
+    elif state == "grab2":
+        box.grab2()
     elif state == "lift":
         box.lift()
     elif state == "drop":

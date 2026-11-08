@@ -8,8 +8,10 @@ from grabbox.poses import (
     GRAB_HEAD_BASE_HEIGHT_M,
     LEFT_ARM_DROP_WAYPOINTS,
     LEFT_ARM_GRAB_POSITION,
+    LEFT_ARM_GRAB2_POSITION,
     RIGHT_ARM_DROP_WAYPOINTS,
     RIGHT_ARM_GRAB_POSITION,
+    RIGHT_ARM_GRAB2_POSITION,
     LEFT_GRAB_TCP_POSITION_M,
     RIGHT_GRAB_TCP_POSITION_M,
 )
@@ -227,6 +229,21 @@ def test_grab_removes_obstacle_when_planning_fails():
         box.grab()
 
     assert motion.plan_calls[0][0] == "traj_plan"
+    assert motion.add_obstacle_calls
+    assert motion.remove_obstacle_calls == ["grab_front_table"]
+
+
+def test_grab2_uses_narrow_arm_targets():
+    robot = FakeRobot()
+    motion = FakeMotion()
+    box = GrabBox(robot, motion)
+
+    box.grab2()
+
+    _, waypoints, _ = motion.plan_calls[0]
+    left, right = waypoints[0]
+    assert left.joint.joint_positions == LEFT_ARM_GRAB2_POSITION
+    assert right.joint.joint_positions == RIGHT_ARM_GRAB2_POSITION
     assert motion.add_obstacle_calls
     assert motion.remove_obstacle_calls == ["grab_front_table"]
 

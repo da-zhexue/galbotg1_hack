@@ -18,6 +18,7 @@ from .poses import (
     LEFT_ARM_DROP_OVER_POSITION,
     LEFT_ARM_DROP_WAYPOINTS,
     LEFT_ARM_GRAB_POSITION,
+    LEFT_ARM_GRAB2_POSITION,
     LEFT_GRAB_TCP_POSITION_M,
     LEG_GRAB_LIFT_POSITION,
     LEG_GRAB_POSITION,
@@ -26,6 +27,7 @@ from .poses import (
     RIGHT_ARM_DROP_OVER_POSITION,
     RIGHT_ARM_DROP_WAYPOINTS,
     RIGHT_ARM_GRAB_POSITION,
+    RIGHT_ARM_GRAB2_POSITION,
     RIGHT_GRAB_TCP_POSITION_M,
 )
 
@@ -330,16 +332,28 @@ class GrabBox:
             enable_collisions=False,
         )
 
-    def _plan_grab_arms(self) -> None:
+    def _plan_grab_arms(
+        self,
+        left_positions: Sequence[float],
+        right_positions: Sequence[float],
+        *,
+        operation: str,
+    ) -> None:
         self._plan_single_point_arms(
-            LEFT_ARM_GRAB_POSITION,
-            RIGHT_ARM_GRAB_POSITION,
-            operation="single-point grab",
+            left_positions,
+            right_positions,
+            operation=operation,
             enable_collisions=False,
             accept_tcp_spacing_m=GRAB_ACCEPT_TCP_SPACING_M,
         )
 
-    def _plan_grab_with_obstacle(self) -> None:
+    def _plan_grab_with_obstacle(
+        self,
+        left_positions: Sequence[float],
+        right_positions: Sequence[float],
+        *,
+        operation: str,
+    ) -> None:
         status = self.motion.add_obstacle(
             obstacle_id=GRAB_OBSTACLE_ID,
             obstacle_type="box",
@@ -350,7 +364,11 @@ class GrabBox:
         if status != gm.MotionStatus.SUCCESS:
             raise GrabboxError(f"add grab obstacle failed: {status}")
         try:
-            self._plan_grab_arms()
+            self._plan_grab_arms(
+                left_positions,
+                right_positions,
+                operation=operation,
+            )
         finally:
             status = self.motion.remove_obstacle(GRAB_OBSTACLE_ID)
             if status != gm.MotionStatus.SUCCESS:
@@ -365,12 +383,37 @@ class GrabBox:
         self._plan_default_arms()
         self._set_gripper(GRIPPER_DEFAULT_WIDTH_M)
 
-    def grab(self) -> None:
-        """Move to the raised-body grab state using the default planner."""
+    def _grab_to(
+        self,
+        left_positions: Sequence[float],
+        right_positions: Sequence[float],
+        *,
+        operation: str,
+    ) -> None:
         self._set_grab_legs()
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
         self._set_joints(HEAD_JOINT_NAMES, HEAD_DEFAULT_POSITION)
-        self._plan_grab_with_obstacle()
+        self._plan_grab_with_obstacle(
+            left_positions,
+            right_positions,
+            operation=operation,
+        )
+
+    def grab(self) -> None:
+        """Move to the raised-body grab state using the default planner."""
+        self._grab_to(
+            LEFT_ARM_GRAB_POSITION,
+            RIGHT_ARM_GRAB_POSITION,
+            operation="single-point grab",
+        )
+
+    def grab2(self) -> None:
+        """Move to the grab state with the hands 0.18 m apart."""
+        self._grab_to(
+            LEFT_ARM_GRAB2_POSITION,
+            RIGHT_ARM_GRAB2_POSITION,
+            operation="single-point grab2",
+        )
 
     def lift(self) -> None:
         """Raise the body 0.05 m from the grab stance to lift the box."""

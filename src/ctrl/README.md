@@ -69,18 +69,17 @@ ros2 topic pub --once /ctrl/head ctrl_msgs/msg/JointGroupCommand \
 "{name: [head_joint1, head_joint2], position: [0.2, 0.1], velocity: [], effort: []}"
 ```
 
-抬升身体并设置默认双臂姿态的测试：
+设置默认位姿的测试：
 
 ```bash
 ros2 run ctrl raise_body_lower_arms_test \
   --ros-args -p confirm:=true
 ```
 
-该测试先发布头部归中和默认双臂姿态（末端比原 home 姿态抬高
-`0.30 m`），等待 2 秒后发布腿部抬升姿态。测试开始时还会将左右夹爪
-张到全开 `0.12 m`。
-腿部目标使用官方 G1 初始站姿 `[0.5, 1.5, 1.0, 0.0, 0.0]`，对应
-`head_base_link` 高度约 `1.444 m`。仿真模式会直接显示在 RViz；真机模式
+该测试先将腿部移动到 Grab 站姿 `[0.172022, 0.841768, 0.569746, 0.0, 0.0]`，
+等待后发布头部归中和默认双臂姿态。默认双臂保持 Grab 的 TCP 前后位置、
+高度和朝向，双手 TCP 间距加大到 `0.30 m`（Grab 为 `0.21 m`）；测试开始时
+还会将左右夹爪张到全开 `0.12 m`。仿真模式会直接显示在 RViz；真机模式
 需要 `real_robot_bridge` 已使用 `allow_motion:=true` 启动。
 
 Grab 测试：
@@ -110,6 +109,25 @@ Grab 姿态左右 TCP 间距为 `0.21 m`。当前 Grab 目标在上一版基础�
 
 同样需要通过 `mode:=sim` 或 `mode:=real` 先启动控制后端。真机模式下必须
 使用 `allow_motion:=true`。
+
+Grab2 测试（更窄的双手间距）：
+
+```bash
+ros2 run ctrl grab2 \
+  --ros-args -p confirm:=true
+```
+
+动作与 Grab 相同：腿部发布 Grab 站姿、夹爪半开 `0.06 m`，仅左右手目标
+改为双手 TCP 间距 `0.18 m`（Grab 为 `0.21 m`）：
+
+```text
+right_arm: [-0.707379, 1.455216, 0.013305, 1.704717,
+             1.618452, 0.603934, 0.514830]
+left_arm:  [ 0.707379, -1.455216, -0.013305, -1.704717,
+            -1.618452, -0.603934, -0.514830]
+```
+
+同样需要通过 `mode:=sim` 或 `mode:=real` 先启动控制后端。
 
 Drop 测试：
 

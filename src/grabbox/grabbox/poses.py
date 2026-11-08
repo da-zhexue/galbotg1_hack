@@ -60,6 +60,29 @@ RIGHT_ARM_GRAB_POSITION = [
     0.510511557,
 ]
 
+# Grab2 IK solution at the same TCP x/z and orientation as the grab pose
+# with the two TCPs 0.18 m apart for a narrower parcel. The smallest
+# joint-limit margin is 0.15 rad; the right arm is the exact mirror.
+GRAB2_TCP_SPACING_M = 0.18
+LEFT_ARM_GRAB2_POSITION = [
+    0.707378962,
+    -1.455215773,
+    -0.013305456,
+    -1.704716525,
+    -1.618451510,
+    -0.603933591,
+    -0.514829954,
+]
+RIGHT_ARM_GRAB2_POSITION = [
+    -0.707378962,
+    1.455215773,
+    0.013305456,
+    1.704716525,
+    1.618451510,
+    0.603933591,
+    0.514829954,
+]
+
 GRIPPER_DEFAULT_WIDTH_M = 0.12
 GRIPPER_GRAB_WIDTH_M = 0.06
 GRIPPER_VELOCITY_MPS = 0.05
