@@ -28,6 +28,7 @@ REAL_TEST_ACTIONS = (
     "fixed-point-1",
     "fixed-point-2",
     "fixed-point-3",
+    "return-origin",
     "navigate-door-100cm",
 )
 
@@ -41,6 +42,7 @@ ALL_ACTION_IDS = (
     "fixed-point-1",
     "fixed-point-2",
     "fixed-point-3",
+    "return-origin",
 )
 
 NEEDS_NAVIGATION = frozenset({"navigate-door-100cm"})
@@ -110,6 +112,7 @@ def _actions(
         "fixed-point-1": ("Fixed point 1", route.fixed_point_1),
         "fixed-point-2": ("Fixed point 2", route.fixed_point_2),
         "fixed-point-3": ("Fixed point 3", route.fixed_point_3),
+        "return-origin": ("Return to origin", route.return_to_origin),
         "navigate-door-100cm": (
             "Navigate Door 100cm",
             route.navigate_to_door,

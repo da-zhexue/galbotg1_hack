@@ -52,6 +52,7 @@ class DeliveryState(str, Enum):
     NAVIGATING_TO_DOOR = "navigating_to_door"
     DROPPING = "dropping"
     RESETTING = "resetting"
+    RETURNING_TO_ORIGIN = "returning_to_origin"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -97,7 +98,12 @@ TRANSITIONS: dict[DeliveryState, frozenset[DeliveryState]] = {
         {DeliveryState.DROPPING}
     ),
     DeliveryState.DROPPING: frozenset({DeliveryState.RESETTING}),
-    DeliveryState.RESETTING: frozenset({DeliveryState.COMPLETED}),
+    DeliveryState.RESETTING: frozenset(
+        {DeliveryState.RETURNING_TO_ORIGIN}
+    ),
+    DeliveryState.RETURNING_TO_ORIGIN: frozenset(
+        {DeliveryState.COMPLETED}
+    ),
     DeliveryState.COMPLETED: frozenset(),
     DeliveryState.FAILED: frozenset(),
 }
@@ -198,6 +204,7 @@ class DeliveryStateMachine:
             DeliveryState.NAVIGATING_TO_DOOR: self._navigate_to_door,
             DeliveryState.DROPPING: self._drop,
             DeliveryState.RESETTING: self._reset,
+            DeliveryState.RETURNING_TO_ORIGIN: self._return_to_origin,
         }
 
     def _transition(
@@ -386,10 +393,19 @@ class DeliveryStateMachine:
 
     def _reset(self) -> None:
         self.grabber.default()
-        self._speak("任务完成，已恢复默认状态")
+        self._speak("任务完成，正在返回原点")
+        self._transition(
+            DeliveryState.RETURNING_TO_ORIGIN,
+            "default state restored",
+        )
+
+    def _return_to_origin(self) -> None:
+        self._prepare_motion()
+        self.route.return_to_origin()
+        self._speak("任务完成，已回到原点")
         self._transition(
             DeliveryState.COMPLETED,
-            "default state restored",
+            "returned to origin",
         )
 
     def _prepare_motion(self) -> None:

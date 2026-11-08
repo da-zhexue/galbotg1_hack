@@ -39,6 +39,8 @@ class G1Route:
     TABLE_EXIT_SPEED_MPS = 0.2
     FIXED_POINT_SPEED_MPS = 0.2
     FIXED_POINT_YAW_SPEED_RAD_S = 0.4
+    RETURN_POSITION_TOLERANCE_M = 0.02
+    RETURN_YAW_TOLERANCE_RAD = 0.02
     NAVIGATION_READY_TIMEOUT_S = 30.0
     NAV_GOAL_FORWARD_M = 2.0
     NAV_GOAL_LEFT_M = 2.0
@@ -64,6 +66,9 @@ class G1Route:
         self.navigation_timeout_s = float(navigation_timeout_s)
         self.sleep = sleep
         self.navigation = navigation
+        # Odom poses recorded before the first move and after every move,
+        # used to retrace the route back to the origin.
+        self._path: list[tuple[float, float, float]] = []
         if self.timeout_s <= 0.0:
             raise ValueError("timeout_s must be positive")
         if self.step_settle_s < 0.0:
@@ -251,6 +256,22 @@ class G1Route:
         print("Current odometry:")
         print(odom_after)
 
+    @staticmethod
+    def _pose_xyyaw(odom) -> tuple[float, float, float]:
+        """Return (x, y, yaw) from an SDK odometry dictionary."""
+        position = odom["position"]
+        orientation = odom["orientation"]
+        pose = [
+            float(position[0]),
+            float(position[1]),
+            float(position[2]),
+            float(orientation[0]),
+            float(orientation[1]),
+            float(orientation[2]),
+            float(orientation[3]),
+        ]
+        return pose[0], pose[1], G1Route._planar_yaw(pose)
+
     def _execute_action(
         self,
         name: str,
@@ -258,7 +279,12 @@ class G1Route:
         y: float,
         yaw: float,
         duration_s: float,
+        *,
+        record: bool = True,
     ) -> None:
+        if record and not self._path:
+            self._path.append(self._pose_xyyaw(self.robot.get_odom()))
+
         print("\n================================")
         print("Action:", name)
         print("X:", x, "m")
@@ -282,8 +308,11 @@ class G1Route:
         print("Action completed:", name)
 
         self.sleep(self.step_settle_s)
+        odom = self.robot.get_odom()
+        if record:
+            self._path.append(self._pose_xyyaw(odom))
         print("Current odometry:")
-        print(self.robot.get_odom())
+        print(odom)
 
     def forward_60cm(self) -> None:
         self._execute_action("Forward 60cm", 0.60, 0.00, 0.0, 6.0)
@@ -356,6 +385,68 @@ class G1Route:
             y,
             yaw,
             self._fixed_point_duration(x, y, yaw),
+        )
+
+    def _drive_to_waypoint(
+        self,
+        target: tuple[float, float, float],
+    ) -> None:
+        """Drive to an odom waypoint with one relative pose command."""
+        current_x, current_y, current_yaw = self._pose_xyyaw(
+            self.robot.get_odom()
+        )
+        target_x, target_y, target_yaw = target
+        dx = target_x - current_x
+        dy = target_y - current_y
+        dyaw = math.atan2(
+            math.sin(target_yaw - current_yaw),
+            math.cos(target_yaw - current_yaw),
+        )
+
+        cos_yaw = math.cos(current_yaw)
+        sin_yaw = math.sin(current_yaw)
+        x = cos_yaw * dx + sin_yaw * dy
+        y = -sin_yaw * dx + cos_yaw * dy
+        if (
+            math.hypot(x, y) < self.RETURN_POSITION_TOLERANCE_M
+            and abs(dyaw) < self.RETURN_YAW_TOLERANCE_RAD
+        ):
+            return
+
+        self._execute_action(
+            "Return to origin",
+            x,
+            y,
+            dyaw,
+            self._fixed_point_duration(x, y, dyaw),
+            record=False,
+        )
+
+    def return_to_origin(self) -> None:
+        """Retrace the recorded route back to the starting pose."""
+        if not self._path:
+            print("[g1-route] no recorded route; already at the origin")
+            return
+
+        waypoints = list(reversed(self._path[:-1]))
+        print(
+            "[g1-route] returning to origin through "
+            f"{len(waypoints)} waypoints"
+        )
+        for index, waypoint in enumerate(waypoints, start=1):
+            print(
+                f"[g1-route] return waypoint {index}/{len(waypoints)}: "
+                f"x={waypoint[0]:.3f}, y={waypoint[1]:.3f}, "
+                f"yaw={waypoint[2]:.3f}"
+            )
+            self._drive_to_waypoint(waypoint)
+
+        origin = self._path[0]
+        current = self._pose_xyyaw(self.robot.get_odom())
+        error = math.hypot(current[0] - origin[0], current[1] - origin[1])
+        print(
+            "[g1-route] returned to origin, remaining position error: "
+            f"{error:.3f} m"
         )
 
     def stop_base(self) -> None:
