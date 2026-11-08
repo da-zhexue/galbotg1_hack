@@ -37,6 +37,8 @@ class G1Route:
     ANGULAR_STATIONARY_TOLERANCE_RAD_S = 0.05
     TOTAL_PATH_LENGTH_M = 3.8
     TABLE_EXIT_SPEED_MPS = 0.2
+    FIXED_POINT_SPEED_MPS = 0.2
+    FIXED_POINT_YAW_SPEED_RAD_S = 0.4
     NAVIGATION_READY_TIMEOUT_S = 30.0
     NAV_GOAL_FORWARD_M = 2.0
     NAV_GOAL_LEFT_M = 2.0
@@ -310,6 +312,51 @@ class G1Route:
 
     def forward_200cm(self) -> None:
         self._execute_action("Forward 200cm", 2.00, 0.00, 0.0, 8.0)
+
+    def _fixed_point_duration(
+        self,
+        x: float,
+        y: float,
+        yaw: float,
+    ) -> float:
+        """Return a duration that keeps translation and yaw below limits."""
+        return max(
+            math.hypot(x, y) / self.FIXED_POINT_SPEED_MPS,
+            abs(yaw) / self.FIXED_POINT_YAW_SPEED_RAD_S,
+        )
+
+    def fixed_point_1(self) -> None:
+        """Leave the pickup area: drive 2.00 m forward."""
+        x, y, yaw = 2.00, 0.00, 0.0
+        self._execute_action(
+            "Fixed point 1",
+            x,
+            y,
+            yaw,
+            self._fixed_point_duration(x, y, yaw),
+        )
+
+    def fixed_point_2(self) -> None:
+        """Enter the corridor: drive 0.80 m to the left."""
+        x, y, yaw = 2.00, 0.80, 0.0
+        self._execute_action(
+            "Fixed point 2",
+            x,
+            y,
+            yaw,
+            self._fixed_point_duration(x, y, yaw),
+        )
+
+    def fixed_point_3(self) -> None:
+        """Stop at the door: drive 0.80 m forward and turn 90 deg left."""
+        x, y, yaw = 2.00, -0.80, math.pi / 2.0
+        self._execute_action(
+            "Fixed point 3",
+            x,
+            y,
+            yaw,
+            self._fixed_point_duration(x, y, yaw),
+        )
 
     def stop_base(self) -> None:
         """Request a base stop and verify the SDK result."""

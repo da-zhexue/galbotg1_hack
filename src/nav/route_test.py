@@ -25,10 +25,25 @@ REAL_TEST_ACTIONS = (
     "forward-40cm",
     "leave-table",
     "forward-200cm",
+    "fixed-point-1",
+    "fixed-point-2",
+    "fixed-point-3",
     "navigate-door-100cm",
 )
 
-NEEDS_NAVIGATION = frozenset({"all", "navigate-door-100cm"})
+ALL_ACTION_IDS = (
+    "forward-60cm",
+    "right-50cm",
+    "right-55cm",
+    "forward-40cm",
+    "leave-table",
+    "forward-200cm",
+    "fixed-point-1",
+    "fixed-point-2",
+    "fixed-point-3",
+)
+
+NEEDS_NAVIGATION = frozenset({"navigate-door-100cm"})
 
 
 def _parse_args(
@@ -92,6 +107,9 @@ def _actions(
             lambda: route.leave_table(1.00),
         ),
         "forward-200cm": ("Forward 200cm", route.forward_200cm),
+        "fixed-point-1": ("Fixed point 1", route.fixed_point_1),
+        "fixed-point-2": ("Fixed point 2", route.fixed_point_2),
+        "fixed-point-3": ("Fixed point 3", route.fixed_point_3),
         "navigate-door-100cm": (
             "Navigate Door 100cm",
             route.navigate_to_door,
@@ -101,8 +119,12 @@ def _actions(
 
 def _run_test_actions(route: G1Route, selection: str) -> None:
     actions = _actions(route)
-    selected = list(actions.items())
-    if selection != "all":
+    if selection == "all":
+        selected = [
+            (action_id, actions[action_id])
+            for action_id in ALL_ACTION_IDS
+        ]
+    else:
         selected = [(selection, actions[selection])]
 
     for index, (action_id, (name, action)) in enumerate(

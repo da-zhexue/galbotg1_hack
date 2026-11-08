@@ -17,9 +17,9 @@ for import_dir in (SRC_DIR, SRC_DIR / "grabbox"):
     if str(import_dir) not in sys.path:
         sys.path.insert(0, str(import_dir))
 
-from galbot_sdk.g1 import GalbotNavigation, GalbotRobot
+from galbot_sdk.g1 import GalbotRobot
 from grabbox import GrabBox
-from nav.g1_route import G1Route, G1RouteError, check_numpy_available
+from nav.g1_route import G1Route
 from voice.g1_voice import (
     ARRIVING,
     DELIVERED,
@@ -366,7 +366,9 @@ class DeliveryStateMachine:
         self._prepare_motion()
         self._speak(f"正在前往{self._command().destination}")
         self.route.forward_200cm()
-        self.route.navigate_to_door()
+        self.route.fixed_point_1()
+        # self.route.fixed_point_2()
+        # self.route.fixed_point_3()
         self.voice.play(ARRIVING)
         self._transition(
             DeliveryState.DROPPING,
@@ -480,16 +482,6 @@ def _stop_voice(voice: G1Voice | None) -> None:
         print(f"[core] voice stop error: {error}")
 
 
-def _stop_navigation(navigation: GalbotNavigation | None) -> None:
-    if navigation is None:
-        return
-    try:
-        success, status = navigation.stop_navigation()
-        print(f"[core] navigation stop: {success} {status}")
-    except Exception as error:
-        print(f"[core] navigation stop error: {error}")
-
-
 def _stop_motion(
     robot: GalbotRobot,
     route: G1Route | None,
@@ -540,20 +532,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("[core] delivery flow cancelled")
         return 2
 
-    try:
-        check_numpy_available()
-    except G1RouteError as error:
-        print(f"[core] {error}")
-        print(
-            "[core] install a supported numpy for "
-            f"{sys.executable}, for example:"
-        )
-        print(
-            f"  {sys.executable} -m pip install --user "
-            "'numpy==1.24.4'"
-        )
-        return 1
-
     robot = GalbotRobot()
     print("[core] initializing Galbot G1")
     if not robot.init():
@@ -561,19 +539,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         robot.destroy()
         return 1
     print("[core] GalbotRobot initialized")
-
-    navigation: GalbotNavigation = GalbotNavigation()
-    print("[core] initializing GalbotNavigation")
-    try:
-        initialized = navigation.init()
-    except Exception as error:
-        print(f"[core] GalbotNavigation init error: {error}")
-        initialized = False
-    if not initialized:
-        print("[core] GalbotNavigation initialization failed")
-        _shutdown_robot(robot)
-        return 1
-    print("[core] GalbotNavigation initialized")
 
     route: G1Route | None = None
     voice: G1Voice | None = None
@@ -585,7 +550,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_s=args.timeout_s,
             step_settle_s=args.settle_s,
             controller_settle_s=args.controller_settle_s,
-            navigation=navigation,
         )
         route.ensure_pose_controller()
         route.check_stationary()
@@ -616,7 +580,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         exit_code = 1
     finally:
         _stop_voice(voice)
-        _stop_navigation(navigation)
         _stop_motion(robot, route)
         _shutdown_robot(robot)
 
