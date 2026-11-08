@@ -23,6 +23,7 @@ REAL_TEST_ACTIONS = (
     "right-50cm",
     "right-55cm",
     "forward-40cm",
+    "backward-40cm",
     "leave-table",
     "forward-200cm",
     "fixed-point-1",
@@ -37,6 +38,7 @@ ALL_ACTION_IDS = (
     "right-50cm",
     "right-55cm",
     "forward-40cm",
+    "backward-40cm",
     "leave-table",
     "forward-200cm",
     "fixed-point-1",
@@ -104,6 +106,7 @@ def _actions(
         "right-50cm": ("Right 50cm", route.right_50cm),
         "right-55cm": ("Right 55cm", route.right_55cm),
         "forward-40cm": ("Forward 40cm", route.forward_40cm),
+        "backward-40cm": ("Backward 40cm", route.backward_40cm),
         "leave-table": (
             "Leave table 100cm",
             lambda: route.leave_table(1.00),

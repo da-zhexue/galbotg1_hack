@@ -41,6 +41,10 @@ class G1Route:
     FIXED_POINT_YAW_SPEED_RAD_S = 0.4
     RETURN_POSITION_TOLERANCE_M = 0.02
     RETURN_YAW_TOLERANCE_RAD = 0.02
+    # From the table-exit pose back to the origin: the robot is 0.60 m
+    # forward and 2.05 m right of the origin at that point.
+    RETURN_ORIGIN_BACKWARD_M = 0.60
+    RETURN_ORIGIN_LEFT_M = 2.05
     NAVIGATION_READY_TIMEOUT_S = 30.0
     NAV_GOAL_FORWARD_M = 2.0
     NAV_GOAL_LEFT_M = 2.0
@@ -66,9 +70,11 @@ class G1Route:
         self.navigation_timeout_s = float(navigation_timeout_s)
         self.sleep = sleep
         self.navigation = navigation
-        # Odom poses recorded before the first move and after every move,
-        # used to retrace the route back to the origin.
+        # Odom poses recorded before the first move and after every move;
+        # the return uses them to undo the door segment.
         self._path: list[tuple[float, float, float]] = []
+        self._table_exit_index: int | None = None
+        self._forward_200_index: int | None = None
         if self.timeout_s <= 0.0:
             raise ValueError("timeout_s must be positive")
         if self.step_settle_s < 0.0:
@@ -320,6 +326,10 @@ class G1Route:
     def forward_40cm(self) -> None:
         self._execute_action("Forward 40cm", 0.40, 0.00, 0.0, 4.0)
 
+    def backward_40cm(self) -> None:
+        """Back away from the table after lifting the parcel."""
+        self._execute_action("Backward 40cm", -0.40, 0.00, 0.0, 4.0)
+
     def right_50cm(self) -> None:
         self._execute_action("Right 50cm", 0.00, -0.50, 0.0, 5.0)
 
@@ -338,9 +348,11 @@ class G1Route:
             0.0,
             distance_m / self.TABLE_EXIT_SPEED_MPS,
         )
+        self._table_exit_index = len(self._path) - 1
 
     def forward_200cm(self) -> None:
         self._execute_action("Forward 200cm", 2.00, 0.00, 0.0, 8.0)
+        self._forward_200_index = len(self._path) - 1
 
     def _fixed_point_duration(
         self,
@@ -423,15 +435,27 @@ class G1Route:
         )
 
     def return_to_origin(self) -> None:
-        """Retrace the recorded route back to the starting pose."""
+        """Reverse the door segment, then drive a fixed way home."""
         if not self._path:
             print("[g1-route] no recorded route; already at the origin")
             return
 
-        waypoints = list(reversed(self._path[:-1]))
+        fixed_tail = (
+            self._table_exit_index is not None
+            and self._forward_200_index is not None
+            and self._forward_200_index == self._table_exit_index + 1
+        )
+        if fixed_tail:
+            # Undo the destination fixed points and the 2 m forward move,
+            # stopping at the last pose recorded before the 2 m move.
+            waypoints = list(
+                reversed(self._path[self._table_exit_index:-1])
+            )
+        else:
+            waypoints = list(reversed(self._path[:-1]))
         print(
             "[g1-route] returning to origin through "
-            f"{len(waypoints)} waypoints"
+            f"{len(waypoints)} recorded waypoints"
         )
         for index, waypoint in enumerate(waypoints, start=1):
             print(
@@ -440,6 +464,23 @@ class G1Route:
                 f"yaw={waypoint[2]:.3f}"
             )
             self._drive_to_waypoint(waypoint)
+
+        if fixed_tail:
+            x = -self.RETURN_ORIGIN_BACKWARD_M
+            y = self.RETURN_ORIGIN_LEFT_M
+            print(
+                "[g1-route] fixed return from the table exit: backward "
+                f"{self.RETURN_ORIGIN_BACKWARD_M:.2f} m, left "
+                f"{self.RETURN_ORIGIN_LEFT_M:.2f} m"
+            )
+            self._execute_action(
+                "Fixed return to origin",
+                x,
+                y,
+                0.0,
+                self._fixed_point_duration(x, y, 0.0),
+                record=False,
+            )
 
         origin = self._path[0]
         current = self._pose_xyyaw(self.robot.get_odom())

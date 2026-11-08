@@ -363,6 +363,7 @@ class DeliveryStateMachine:
             raise DeliveryError("scan position is not recorded")
         right_offset = self.SCAN_RIGHT_OFFSETS_M[self.scan_position - 1]
         distance = self.TABLE_EXIT_RIGHT_M - right_offset
+        self.route.backward_40cm()
         self.route.leave_table(distance)
         self._transition(
             DeliveryState.NAVIGATING_TO_DOOR,
