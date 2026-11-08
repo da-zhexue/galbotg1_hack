@@ -5,10 +5,53 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from galbot_sdk.g1 import ControlStatus, GalbotRobot
+from galbot_sdk.g1 import (
+    ControlStatus,
+    GalbotRobot,
+    RgbOutputFormat,
+    SensorType,
+)
+
+try:
+    from .white_align import (
+        ALIGN_DEADBAND,
+        ALIGN_GAIN_M,
+        ALIGN_MAX_ITERATIONS,
+        ALIGN_MAX_STEP_M,
+        DEFAULT_MAX_AREA_RATIO,
+        DEFAULT_MIN_AREA_RATIO,
+        DEFAULT_SATURATION_MAX,
+        DEFAULT_VALUE_MIN,
+        WhiteRegion,
+        align_laterally,
+        find_white_regions,
+        select_white_region,
+    )
+    from .label_ocr import read_label_code
+except ImportError:  # pragma: no cover - direct script import
+    from white_align import (
+        ALIGN_DEADBAND,
+        ALIGN_GAIN_M,
+        ALIGN_MAX_ITERATIONS,
+        ALIGN_MAX_STEP_M,
+        DEFAULT_MAX_AREA_RATIO,
+        DEFAULT_MIN_AREA_RATIO,
+        DEFAULT_SATURATION_MAX,
+        DEFAULT_VALUE_MIN,
+        WhiteRegion,
+        align_laterally,
+        find_white_regions,
+        select_white_region,
+    )
+    from label_ocr import read_label_code
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class G1RouteError(RuntimeError):
@@ -49,6 +92,31 @@ class G1Route:
     NAV_GOAL_FORWARD_M = 2.0
     NAV_GOAL_LEFT_M = 2.0
     NAV_MIN_DISPLACEMENT_M = 0.5
+    # White-label lateral calibration: the white paper on each parcel is
+    # centered in the camera image by moving the base left/right.
+    WHITE_CAMERAS = {
+        "head-left": SensorType.HEAD_LEFT_CAMERA,
+        "head-right": SensorType.HEAD_RIGHT_CAMERA,
+        "left-arm": SensorType.LEFT_ARM_CAMERA,
+        "right-arm": SensorType.RIGHT_ARM_CAMERA,
+    }
+    WHITE_ALIGN_DEADBAND = ALIGN_DEADBAND
+    WHITE_ALIGN_GAIN_M = ALIGN_GAIN_M
+    WHITE_ALIGN_MAX_STEP_M = ALIGN_MAX_STEP_M
+    WHITE_ALIGN_MAX_ITERATIONS = ALIGN_MAX_ITERATIONS
+    WHITE_ALIGN_SPEED_MPS = 0.10
+    WHITE_ALIGN_MIN_DURATION_S = 1.0
+    WHITE_SATURATION_MAX = DEFAULT_SATURATION_MAX
+    WHITE_VALUE_MIN = DEFAULT_VALUE_MIN
+    WHITE_MIN_AREA_RATIO = DEFAULT_MIN_AREA_RATIO
+    WHITE_MAX_AREA_RATIO = DEFAULT_MAX_AREA_RATIO
+    WHITE_CAPTURE_ATTEMPTS = 5
+    WHITE_CAPTURE_RETRY_S = 0.5
+    # Every calibration run saves its frames with all detected white
+    # regions outlined. Override the output directory with
+    # GALBOT_WHITE_DEBUG_DIR, or set it to an empty value to disable.
+    WHITE_DEBUG_DIR_ENV = "GALBOT_WHITE_DEBUG_DIR"
+    WHITE_DEBUG_DIR_DEFAULT = "/tmp/galbot-white-align"
 
     def __init__(
         self,
@@ -60,6 +128,7 @@ class G1Route:
         navigation_timeout_s: float = 30.0,
         sleep: Callable[[float], None] = time.sleep,
         navigation=None,
+        white_camera: str = "head-left",
     ) -> None:
         if robot is None:
             raise ValueError("robot must be a GalbotRobot instance")
@@ -70,11 +139,24 @@ class G1Route:
         self.navigation_timeout_s = float(navigation_timeout_s)
         self.sleep = sleep
         self.navigation = navigation
+        try:
+            self.white_camera_id = self.WHITE_CAMERAS[white_camera]
+        except KeyError as error:
+            raise ValueError(
+                f"unknown white-alignment camera: {white_camera!r}; "
+                f"choose from {sorted(self.WHITE_CAMERAS)}"
+            ) from error
         # Odom poses recorded before the first move and after every move;
         # the return uses them to undo the door segment.
         self._path: list[tuple[float, float, float]] = []
         self._table_exit_index: int | None = None
         self._forward_200_index: int | None = None
+        self._white_debug_index = 0
+        self._white_debug_run_dir = ""
+        self.white_debug_dir = os.environ.get(
+            self.WHITE_DEBUG_DIR_ENV,
+            self.WHITE_DEBUG_DIR_DEFAULT,
+        )
         if self.timeout_s <= 0.0:
             raise ValueError("timeout_s must be positive")
         if self.step_settle_s < 0.0:
@@ -398,6 +480,186 @@ class G1Route:
             yaw,
             self._fixed_point_duration(x, y, yaw),
         )
+
+    def _capture_rgb_image(self) -> np.ndarray | None:
+        """Return one fresh BGR frame from the white-alignment camera."""
+        try:
+            import cv2
+            import numpy as np
+        except Exception as error:
+            raise G1RouteError(
+                "White alignment requires numpy and OpenCV: "
+                f"{type(error).__name__}: {error}"
+            ) from error
+
+        attempts = self.WHITE_CAPTURE_ATTEMPTS
+        for attempt in range(1, attempts + 1):
+            frame = self.robot.get_rgb_data(
+                self.white_camera_id,
+                RgbOutputFormat.JPEG,
+                True,
+            )
+            if frame and "data" in frame:
+                image = cv2.imdecode(
+                    np.frombuffer(frame["data"], np.uint8),
+                    cv2.IMREAD_COLOR,
+                )
+                if image is not None:
+                    return image
+            print(
+                "[g1-route] white-alignment camera frame unavailable "
+                f"({attempt}/{attempts})"
+            )
+            if attempt < attempts:
+                self.sleep(self.WHITE_CAPTURE_RETRY_S)
+        return None
+
+    def _move_right_for_alignment(self, distance_m: float) -> None:
+        """Move the base right by distance_m for white-label alignment."""
+        distance_m = float(distance_m)
+        duration_s = max(
+            self.WHITE_ALIGN_MIN_DURATION_S,
+            abs(distance_m) / self.WHITE_ALIGN_SPEED_MPS,
+        )
+        side = "right" if distance_m >= 0.0 else "left"
+        self._execute_action(
+            f"White align {side} {abs(distance_m):.3f}m",
+            0.0,
+            -distance_m,
+            0.0,
+            duration_s,
+        )
+
+    def _find_white_regions(
+        self,
+        image: np.ndarray,
+    ) -> list[WhiteRegion]:
+        """Return white parcel labels found in a BGR image."""
+        regions = find_white_regions(
+            image,
+            saturation_max=self.WHITE_SATURATION_MAX,
+            value_min=self.WHITE_VALUE_MIN,
+            min_area_ratio=self.WHITE_MIN_AREA_RATIO,
+            max_area_ratio=self.WHITE_MAX_AREA_RATIO,
+        )
+        if regions:
+            summary = ", ".join(
+                f"#{index} x={region.center_x_px:.0f} "
+                f"area={region.area_px:.0f}"
+                for index, region in enumerate(regions)
+            )
+            print(f"[g1-route] white regions: {summary}")
+        else:
+            print("[g1-route] white regions: none")
+        self._save_white_debug(image, regions)
+        return regions
+
+    def _begin_white_debug_session(self) -> None:
+        """Create a fresh directory for this calibration run's frames."""
+        if not self.white_debug_dir:
+            return
+        try:
+            run_dir = os.path.join(
+                self.white_debug_dir,
+                time.strftime("%Y%m%d-%H%M%S"),
+            )
+            os.makedirs(run_dir, exist_ok=True)
+        except OSError as error:
+            print(
+                "[g1-route] white-align debug directory unavailable: "
+                f"{error}"
+            )
+            self.white_debug_dir = ""
+            return
+        self._white_debug_run_dir = run_dir
+        self._white_debug_index = 0
+        print(f"[g1-route] white-align debug frames: {run_dir}")
+
+    def _save_white_debug(
+        self,
+        image: np.ndarray,
+        regions: list[WhiteRegion],
+    ) -> None:
+        """Dump the calibration frame with all detected regions marked."""
+        if not self._white_debug_run_dir:
+            self._begin_white_debug_session()
+        debug_dir = self._white_debug_run_dir
+        if not debug_dir:
+            return
+        try:
+            import cv2
+
+            annotated = image.copy()
+            for index, region in enumerate(regions):
+                cv2.rectangle(
+                    annotated,
+                    (region.left_px, region.top_px),
+                    (region.right_px, region.bottom_px),
+                    (0, 0, 255),
+                    2,
+                )
+                cv2.putText(
+                    annotated,
+                    f"{index}:{int(region.area_px)}",
+                    (region.left_px, max(18, region.top_px - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2,
+                )
+            self._white_debug_index += 1
+            path = os.path.join(
+                debug_dir,
+                f"white_{self._white_debug_index:02d}.png",
+            )
+            cv2.imwrite(path, annotated)
+            print(f"[g1-route] saved white-align frame: {path}")
+        except Exception as error:
+            print(
+                "[g1-route] white-align debug frame save failed: "
+                f"{type(error).__name__}: {error}"
+            )
+
+    def calibrate_white_lateral(self) -> bool:
+        """Center the parcel's white label by moving the base left/right."""
+        print(
+            "\n[g1-route] calibrating against the white parcel label "
+            f"({self.white_camera_id.name})"
+        )
+        self._begin_white_debug_session()
+        aligned = align_laterally(
+            self._capture_rgb_image,
+            self._move_right_for_alignment,
+            self._find_white_regions,
+            deadband=self.WHITE_ALIGN_DEADBAND,
+            gain_m=self.WHITE_ALIGN_GAIN_M,
+            max_step_m=self.WHITE_ALIGN_MAX_STEP_M,
+            max_iterations=self.WHITE_ALIGN_MAX_ITERATIONS,
+        )
+        if not aligned:
+            print(
+                "[g1-route] white alignment did not center the label; "
+                "using the nominal pickup position"
+            )
+        return aligned
+
+    def read_white_label_code(self) -> str | None:
+        """OCR the nearest white parcel label and return its pickup code."""
+        image = self._capture_rgb_image()
+        if image is None:
+            print("[g1-route] label OCR skipped: no camera frame")
+            return None
+
+        region = select_white_region(self._find_white_regions(image))
+        if region is None:
+            print("[g1-route] label OCR skipped: no white label found")
+            return None
+        print(
+            "[g1-route] white label region: "
+            f"x={region.left_px}..{region.right_px}, "
+            f"y={region.top_px}..{region.bottom_px}"
+        )
+        return read_label_code(image, region)
 
     def _drive_to_waypoint(
         self,

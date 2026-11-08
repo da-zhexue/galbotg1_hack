@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Sequence
 
 import galbot_sdk.g1 as gm
@@ -47,6 +48,12 @@ GRAB_OBSTACLE_SCALE = (0.6, 2.0, 0.75)
 # A rejected grab plan is accepted when the box already stops the two
 # hands and their actual TCP spacing is within this distance.
 GRAB_ACCEPT_TCP_SPACING_M = 0.25
+
+# execute_joint_trajectory has no timeout argument. If it reports TIMEOUT,
+# check whether the arm nevertheless settled at the drop target; a held
+# box or controller load can make the blocking wait expire early.
+DROP_ARM_TOLERANCE_RAD = 0.08
+DROP_RECOVERY_TIMEOUT_S = 5.0
 
 # Fixed distance from each arm's end-effector mount link to the gripper
 # TCP along the mount x axis (gripper flange 0.0065 m + TCP 0.13996 m).
@@ -442,13 +449,123 @@ class GrabBox:
         trajectory.points = points
         return trajectory
 
+    def _read_arm_joint_positions(self) -> list[float]:
+        names = list(LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES)
+        positions = self.robot.get_joint_positions(joint_names=names)
+        if len(positions) != len(names):
+            raise GrabboxError(
+                f"get_joint_positions returned {len(positions)} values "
+                f"for {len(names)} arm joints"
+            )
+        return [float(position) for position in positions]
+
+    def _log_arm_joint_error(
+        self,
+        label: str,
+        target: Sequence[float],
+    ) -> float | None:
+        names = list(LEFT_ARM_JOINT_NAMES + RIGHT_ARM_JOINT_NAMES)
+        try:
+            actual = self._read_arm_joint_positions()
+        except Exception as error:
+            print(
+                f"[grabbox] {label} joint check failed: "
+                f"{type(error).__name__}: {error}",
+                flush=True,
+            )
+            return None
+        index, error = max(
+            enumerate(
+                abs(current - wanted)
+                for current, wanted in zip(actual, target)
+            ),
+            key=lambda item: item[1],
+        )
+        print(
+            f"[grabbox] {label} max joint error {error:.4f} rad "
+            f"at {names[index]}",
+            flush=True,
+        )
+        return error
+
+    def _wait_for_arm_target(
+        self,
+        target: Sequence[float],
+        timeout_s: float,
+    ) -> tuple[bool, float]:
+        deadline = time.monotonic() + timeout_s
+        last_error = float("inf")
+        while True:
+            try:
+                actual = self._read_arm_joint_positions()
+                last_error = max(
+                    abs(current - wanted)
+                    for current, wanted in zip(actual, target)
+                )
+            except Exception as error:
+                print(
+                    "[grabbox] drop joint check failed: "
+                    f"{type(error).__name__}: {error}",
+                    flush=True,
+                )
+            if last_error <= DROP_ARM_TOLERANCE_RAD:
+                return True, last_error
+            if time.monotonic() >= deadline:
+                return False, last_error
+            time.sleep(0.1)
+
     def drop(self) -> None:
         """Lower the body and follow the synchronized drop path."""
-        #self._check_drop_preconditions()
+        trajectory = self._build_drop_trajectory()
+        start_target = (
+            list(LEFT_ARM_DROP_WAYPOINTS[0])
+            + list(RIGHT_ARM_DROP_WAYPOINTS[0])
+        )
+        target = (
+            list(LEFT_ARM_DROP_WAYPOINTS[-1])
+            + list(RIGHT_ARM_DROP_WAYPOINTS[-1])
+        )
+        duration_s = (
+            trajectory.points[-1].time_from_start_second
+            if trajectory.points
+            else 0.0
+        )
+        print(
+            f"[grabbox] drop trajectory: {len(trajectory.points)} points, "
+            f"{duration_s:.2f} s",
+            flush=True,
+        )
+        self._log_arm_joint_error("drop start", start_target)
+
         status = self.robot.execute_joint_trajectory(
-            self._build_drop_trajectory(),
+            trajectory,
             is_blocking=True,
         )
+        reached = status == gm.ControlStatus.SUCCESS
+        final_error = float("nan")
+        if reached:
+            self._log_arm_joint_error("drop final", target)
+        else:
+            reached, final_error = self._wait_for_arm_target(
+                target,
+                DROP_RECOVERY_TIMEOUT_S,
+            )
+            if reached:
+                print(
+                    "[grabbox] execute_joint_trajectory(drop) returned "
+                    f"{status}, but the arm reached the drop target "
+                    f"(max joint error {final_error:.4f} rad); continuing",
+                    flush=True,
+                )
+            else:
+                print(
+                    "[grabbox] execute_joint_trajectory(drop) returned "
+                    f"{status} and the arm did not reach the drop target "
+                    f"(max joint error {final_error:.4f} rad); "
+                    "completing the placement sequence anyway",
+                    flush=True,
+                )
+
         self._set_joints(
             LEG_JOINT_NAMES,
             LEG_DROP_POSITION,
@@ -457,4 +574,9 @@ class GrabBox:
         self._set_gripper(GRIPPER_GRAB_WIDTH_M)
 
         self._set_drop_over_arms()
-        self._require_success("execute_joint_trajectory(drop)", status)
+
+        if not reached:
+            raise GrabboxError(
+                "execute_joint_trajectory(drop) failed: "
+                f"{status}; max arm joint error {final_error:.4f} rad"
+            )

@@ -29,6 +29,7 @@ REAL_TEST_ACTIONS = (
     "fixed-point-1",
     "fixed-point-2",
     "fixed-point-3",
+    "calibrate-white",
     "return-origin",
     "navigate-door-100cm",
 )
@@ -48,6 +49,7 @@ ALL_ACTION_IDS = (
 )
 
 NEEDS_NAVIGATION = frozenset({"navigate-door-100cm"})
+NEEDS_CAMERA = frozenset({"calibrate-white"})
 
 
 def _parse_args(
@@ -61,6 +63,12 @@ def _parse_args(
         choices=REAL_TEST_ACTIONS,
         default="all",
         help="Action to test. 'all' runs the complete route.",
+    )
+    parser.add_argument(
+        "--white-camera",
+        choices=sorted(G1Route.WHITE_CAMERAS),
+        default="head-left",
+        help="Camera used by the white-label calibration action.",
     )
     parser.add_argument(
         "--timeout-s",
@@ -115,6 +123,10 @@ def _actions(
         "fixed-point-1": ("Fixed point 1", route.fixed_point_1),
         "fixed-point-2": ("Fixed point 2", route.fixed_point_2),
         "fixed-point-3": ("Fixed point 3", route.fixed_point_3),
+        "calibrate-white": (
+            "White lateral calibration",
+            route.calibrate_white_lateral,
+        ),
         "return-origin": ("Return to origin", route.return_to_origin),
         "navigate-door-100cm": (
             "Navigate Door 100cm",
@@ -210,7 +222,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     robot = GalbotRobot()
     print("[g1-route] initializing Galbot G1")
-    if not robot.init():
+    if args.action in NEEDS_CAMERA:
+        initialized = robot.init(
+            {G1Route.WHITE_CAMERAS[args.white_camera]}
+        )
+    else:
+        initialized = robot.init()
+    if not initialized:
         print("[g1-route] GalbotRobot initialization failed")
         robot.destroy()
         return 1
@@ -240,6 +258,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             step_settle_s=args.settle_s,
             controller_settle_s=args.controller_settle_s,
             navigation=navigation,
+            white_camera=args.white_camera,
         )
         time.sleep(1.0)
         route.ensure_pose_controller()

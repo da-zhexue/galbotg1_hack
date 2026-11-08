@@ -123,7 +123,7 @@ class DeliveryStateMachine:
     # first parcel -> second parcel 0.50 m, second -> third 0.55 m.
     SCAN_RIGHT_OFFSETS_M = (0.0, 0.50, 1.05)
     # "Outside the table" is 1.00 m to the right of the third parcel.
-    TABLE_EXIT_RIGHT_M = 1.05 + 1.00
+    TABLE_EXIT_RIGHT_M = 1.05 + 1.20
 
     def __init__(
         self,
@@ -133,6 +133,7 @@ class DeliveryStateMachine:
         voice: G1Voice,
         *,
         scan_codes: Sequence[str] | None = None,
+        white_alignment: bool = True,
         log: Callable[[str], None] = print,
     ) -> None:
         self.robot = robot
@@ -142,6 +143,7 @@ class DeliveryStateMachine:
         self.scan_codes = (
             tuple(scan_codes) if scan_codes is not None else None
         )
+        self.white_alignment = bool(white_alignment)
         self.log = log
         self.state = DeliveryState.IDLE
         self.command: PickupCommand | None = None
@@ -262,7 +264,15 @@ class DeliveryStateMachine:
         )
 
     def _scan_1(self) -> None:
-        self._scan(1, DeliveryState.MOVING_TO_SCAN_2)
+        # OCR is unreliable for now; grab the first parcel directly so
+        # the white-label calibration can be tested on its own.
+        self.scan_position = 1
+        self.log("[state] OCR disabled: selecting the first parcel")
+        self._speak("取件码识别暂时关闭，直接取第一个快递")
+        self._transition(
+            DeliveryState.GRABBING,
+            "first parcel selected without OCR",
+        )
 
     def _move_to_scan_2(self) -> None:
         self._prepare_motion()
@@ -320,22 +330,23 @@ class DeliveryStateMachine:
         )
 
     def _read_pickup_code(self, position: int) -> str | None:
-        # TODO: 调用真实扫码模块，替换下面的演示结果。
         if self.scan_codes is not None:
             index = position - 1
             if 0 <= index < len(self.scan_codes):
                 return self.scan_codes[index]
             return None
 
-        command = self._command()
-        mismatch_code = (
-            "A-2345"
-            if command.pickup_code != "A-2345"
-            else "A-0000"
-        )
-        if position < self.SCAN_POSITIONS:
-            return mismatch_code
-        return command.pickup_code
+        code = self.route.read_white_label_code()
+        if code is None:
+            self.log(
+                f"[state] no pickup code recognized at scan {position}"
+            )
+        else:
+            self.log(
+                f"[state] recognized pickup code at scan {position}: "
+                f"{code}"
+            )
+        return code
 
     def _speak(self, text: str) -> None:
         # Dynamic text is logged only; fixed prompts go through G1Voice.
@@ -345,8 +356,15 @@ class DeliveryStateMachine:
         # TODO: 接入激光雷达/视觉障碍检测，发现障碍时抛出异常。
         pass
 
+    def _align_before_grab(self) -> None:
+        if not self.white_alignment:
+            return
+        self.log("[state] calibrating left/right before grabbing")
+        self.route.calibrate_white_lateral()
+
     def _grab(self) -> None:
         self._prepare_motion()
+        self._align_before_grab()
         self.route.forward_40cm()
         self.route.check_stationary()
         self.grabber.grab()
@@ -440,7 +458,7 @@ def _parse_args(
     )
     parser.add_argument(
         "--pickup-code",
-        default="A-1234",
+        default="B520",
         help="Pickup code supplied by the UI command.",
     )
     parser.add_argument(
@@ -453,6 +471,17 @@ def _parse_args(
         type=_parse_scan_codes,
         default=None,
         help="Temporary scan results for demo and testing.",
+    )
+    parser.add_argument(
+        "--white-camera",
+        choices=sorted(G1Route.WHITE_CAMERAS),
+        default="head-left",
+        help="Camera used to center the white parcel label.",
+    )
+    parser.add_argument(
+        "--no-white-align",
+        action="store_true",
+        help="Disable white-label left/right calibration before grabbing.",
     )
     parser.add_argument(
         "--timeout-s",
@@ -551,7 +580,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     robot = GalbotRobot()
     print("[core] initializing Galbot G1")
-    if not robot.init():
+    if args.no_white_align:
+        initialized = robot.init()
+    else:
+        initialized = robot.init(
+            {G1Route.WHITE_CAMERAS[args.white_camera]}
+        )
+    if not initialized:
         print("[core] GalbotRobot initialization failed")
         robot.destroy()
         return 1
@@ -567,6 +602,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_s=args.timeout_s,
             step_settle_s=args.settle_s,
             controller_settle_s=args.controller_settle_s,
+            white_camera=args.white_camera,
         )
         route.ensure_pose_controller()
         route.check_stationary()
@@ -579,6 +615,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             grabber,
             voice,
             scan_codes=args.scan_codes,
+            white_alignment=not args.no_white_align,
         )
         final_state = machine.start(command)
         if final_state == DeliveryState.COMPLETED:
